@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 (2026-11-02)
 
 Fixed:
 - With tracegate-ci's broker configured, every eval run failed: hyvemind asked for the
@@ -9,6 +9,11 @@ Fixed:
 - `probe` with `format: node` tested nothing on Node 20: the reporter flag went after the
   test file, where Node 20 reads it as another file. It now goes in `NODE_OPTIONS`.
 - Docs: the `tracegate run` gate example repeated `vitest run` after `--`.
+
+Changed:
+- The docs are rewritten in plain language. The eval details move to
+  `docs/evals-guide.md`, and the reference now covers `affected --observe/--status`,
+  `gate --wait`, `run --branch`, `train --verbose` and `--cwd`.
 
 ## 0.4.0 (2026-10-27)
 
