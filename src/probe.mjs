@@ -35,12 +35,19 @@ export function cleanEnv(extra = {}) {
 // Case-level results, so a witness is a FAILING case, not a name that appears
 // somewhere in the output (a passing case's name would otherwise count).
 //   vitest: --reporter=json --outputFile=<file>  → assertionResults[].status === 'failed'
-//   node:   --test-reporter=tap                  → "not ok N - <title>" lines
+//   node:   NODE_OPTIONS=--test-reporter=tap      → "not ok N - <title>" lines
 //   output: no structure; expectRed is not available, only expectOutput
+// The node reporter goes in NODE_OPTIONS, not on the command line: the command is
+// `node --test {test}`, and Node 20 reads an option written after the file as another
+// file pattern ("Could not find …/--test-reporter=tap"), so the run tested nothing.
 export function formatArgs(format, reportFile) {
   if (format === 'vitest') return ` --reporter=json --outputFile=${shq(reportFile)}`;
-  if (format === 'node') return ' --test-reporter=tap';
   return '';
+}
+
+export function formatEnv(format, base = process.env) {
+  if (format === 'node') return { NODE_OPTIONS: [base.NODE_OPTIONS, '--test-reporter=tap'].filter(Boolean).join(' ') };
+  return {};
 }
 
 export function failingCases(format, { output, reportFile }) {
@@ -97,7 +104,7 @@ export function runProbe(root, cfg, p) {
       cwd: join(root, cfg.probe.lanes[lane]),
       shell: true,
       encoding: 'utf8',
-      env: cleanEnv({ ...(p.env ?? {}), CI: '1' }),
+      env: cleanEnv({ ...(p.env ?? {}), CI: '1', ...formatEnv(format, { ...process.env, ...(p.env ?? {}) }) }),
       timeout: cfg.probe.timeoutSec * 1000,
       killSignal: 'SIGKILL',
       maxBuffer: 64 * 1024 * 1024,

@@ -8,6 +8,11 @@
   against the ones tracegate accepts.
 - **Docs:** the `tracegate run` gate example repeated `vitest run` after `--`, which
   tracegate passes to Vitest as file filters.
+- **`probe` with `format: node` works on Node 20.** The TAP reporter was appended after
+  the test file (`node --test {test} --test-reporter=tap`), and Node 20 reads an option
+  there as another file pattern, so the run tested nothing and every case-level probe
+  came back `other-red`. The reporter now goes in `NODE_OPTIONS`. This was the red
+  Node 20 job on `main` since 0.4.0.
 
 ## 0.4.0 — 2026-10-27
 
