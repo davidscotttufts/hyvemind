@@ -2,275 +2,94 @@
 
 ## Unreleased
 
-- **Eval runs work under a tracegate broker.** They asked for the class `agent`, which
-  tracegate's broker refuses, so with `broker` configured every eval run exited 2, and
-  `--quiet` hid the reason. They now use `adhoc`, and a test checks every default class
-  against the ones tracegate accepts.
-- **Docs:** the `tracegate run` gate example repeated `vitest run` after `--`, which
-  tracegate passes to Vitest as file filters.
-- **`probe` with `format: node` works on Node 20.** The TAP reporter was appended after
-  the test file (`node --test {test} --test-reporter=tap`), and Node 20 reads an option
-  there as another file pattern, so the run tested nothing and every case-level probe
-  came back `other-red`. The reporter now goes in `NODE_OPTIONS`. This was the red
-  Node 20 job on `main` since 0.4.0.
+Fixed:
+- With tracegate-ci's broker configured, every eval run failed: hyvemind asked for the
+  class `agent`, which the broker refuses, and `--quiet` hid why. Eval runs now use
+  `adhoc`, and a test checks every default class against the ones tracegate accepts.
+- `probe` with `format: node` tested nothing on Node 20: the reporter flag went after the
+  test file, where Node 20 reads it as another file. It now goes in `NODE_OPTIONS`.
+- Docs: the `tracegate run` gate example repeated `vitest run` after `--`.
 
-## 0.4.0 — 2026-10-27
+## 0.4.0 (2026-10-27)
 
-- **`probe` takes a per-worktree lock** (a second probe refuses; stale locks are
-  reclaimed), and **`probe --isolate`** runs in a throwaway worktree of `HEAD`, so a
-  pull or checkout in the live tree can't capture a sabotaged file.
+Added:
+- **Sandboxed `run`** (`--sandbox podman|docker`): exit checks run in a container with no
+  network, dropped capabilities and an allowlisted environment, and the agent can only
+  read and edit files. Verified on real Podman.
+- **`eval --matrix`**: runs the scenarios once per installed, logged-in agent, with
+  separate verdicts and a list of skills whose verdict differs between agents.
+- **Clean profiles** for evals (`--clean-profile`), measured with a canary instruction.
+  Claude Code's flags drop the user's `CLAUDE.md`. Codex's don't skip
+  `~/.codex/AGENTS.md`, so each clean Codex run gets a temporary `CODEX_HOME` holding only
+  a link to the login.
+- **Honest verdicts:** `saturated` when both arms always pass, Wilson and Newcombe
+  intervals, `earning (low n)` when the lift interval includes 0, and per-scenario
+  `harmful` and `no-signal` flags.
+- **Safer evals:** a cost preview and consent before running, an allowlisted
+  environment, agents on their own login rather than API keys, failing outputs kept, and
+  machine load recorded.
+- **Scenario lint** (`eval --lint`, and in `npm test`): `good` and `bad` examples, and
+  checks that a prompt doesn't contradict its own checks. All 58 bundled scenarios are
+  clean.
+- `probe --isolate` and a per-worktree probe lock.
+- Census flags `COMMENTED_ASSERT` and `UNUSED_LOCAL`.
+- `train` prints a summary and saves the full log; `--verbose` streams it.
 
-- **Sandboxed `run`** (`--sandbox podman|docker`, `run.sandbox`). Exit checks and
-  setup run in a container: no network for checks, dropped capabilities, memory and
-  CPU limits, and only allowlisted environment variables. While sandboxed, the agent
-  gets read and edit tools only, so nothing it writes runs on the host. `doctor`
-  checks the runtime.
-- **`train` prints a summary** (pass or fail per gate) and saves the full gate output
-  to `.hyve/train/`; `--verbose` streams it. The census tests skip with "run npm ci"
-  when TypeScript isn't installed. `.hyve/.gitignore` also covers `train/`, `runs/` and
-  the `affected` ledger.
+Changed:
+- 30 bundled scenarios now ask for `LABEL: <a or b>` instead of a copyable `LABEL: a | b`
+  menu. Their lift isn't comparable with earlier rounds, which partly measured whether
+  the model copied the menu.
 
-- **Honest eval verdicts** (#17). New `saturated` verdict when both arms pass every
-  run (previously `retire-candidate`). Reports carry per-scenario rows with pass counts,
-  lift and `harmful` / `no-signal` flags, listed at the top of the markdown report.
-  Each arm gets a 95% Wilson interval and lift a Newcombe hybrid score interval; a skill
-  is `earning` only when that interval excludes 0, otherwise `earning (low n)`. The
-  report shows each skill's rendered words (≈ tokens) next to its lift. `--render`
-  recomputes all of this from an old report's runs.
-- **Running evals safely** (#17).
-  - `eval` prints a cost preview before starting: runs × arms × trials, concurrency, and
-    duration as a timeout upper bound plus a historical median. It needs `--yes` when
-    stdin is not a TTY and asks y/N on one. `--dry-run` only previews.
-  - Agents, setup and command checks get an allowlisted env instead of `process.env`.
-    Per-agent `evals.agents.<name>.env` lists the extra variable names to pass.
-  - `--clean-profile` applies the agent's `cleanArgs` and `cleanEnv` to both arms. For
-    claude these are `--setting-sources project,local --strict-mcp-config` and
-    auto-memory off. See the reference for what is and isn't guaranteed.
-  - Failing runs keep their full output under `.hyve/evals/<run-id>/`, and `--keep`
-    keeps passes too. The inline tail is now 2,000 characters.
-  - `skill:scenario` and `--scenario <id>` run single scenarios.
-  - Reports are stamped `version+sha[-dirty]` when run from a git checkout.
-- **Scenario lint** (#17). Scenarios can carry `good` and `bad` example outputs.
-  - `hyvemind eval --lint` and `npm test` assert that each `good` passes every check
-    and each `bad` fails at least one. Scenarios without examples count as unlinted.
-    Workspace checks (`file-exists`, `command`) make a scenario's lint partial.
-  - A contradiction check flags prompts that dictate a line their own checks reject,
-    and warns about `a | b` menus whose verbatim echo fails (or passes).
-  - All 58 bundled scenarios now carry `good` and `bad` examples: 0 unlinted, 0 partial.
-- **Answer lines are placeholders, not menus.** The 30 bundled scenarios whose prompt
-  ended with a copyable `LABEL: a | b` menu now ask for `LABEL: <a or b>` (28
-  `menu-echo`, plus `open-pr/push-free-pr-asks` and `ship-change/trivial-stays-trivial`,
-  whose echoed menu passed). Options, traps and checks are unchanged. `eval --lint`:
-  0 errors, 0 warnings, 0 unlinted. Lift for these 30 scenarios is **not comparable**
-  with rounds 1–2: the old prompts partly measured whether the model copied the menu.
-- **`eval --matrix`** (or `--agent a,b,c`) runs the selected scenarios once per agent
-  in `evals.agents`. By default that is every agent whose binary is installed, and the
-  rest are listed as `not installed`. Each agent gets its own runs, verdicts and
-  intervals; nothing is pooled. One cost preview and one `--yes` cover the whole
-  matrix, and `--dry-run` shows each agent's share. Reports keep per-agent sections.
-  The markdown has a column group per agent and a **Disagreements** list of skills
-  whose verdict differs between agents. `--render` reads single-agent and matrix
-  reports. `--model` is refused for a matrix.
-- **`{clean}` in agent commands.** With `--clean-profile`, a `{clean}` argument in
-  `evals.agents.<name>.command` expands to that agent's `cleanArgs`; without it, to
-  nothing. Commands without `{clean}` keep the old placement (right after the
-  executable). This lets clean flags follow a subcommand. `codex` now defaults to
-  `codex exec {clean} {prompt}` with `--ignore-user-config --ephemeral --ignore-rules`
-  (meanings from `codex exec --help`). Those flags turned out NOT to isolate codex; see
-  `cleanHome` below. `opencode` still has no `cleanArgs`: `--pure` only drops plugins.
-- **Lint: `placeholder-echo-passes`.** A placeholder line (`LABEL: <a or b>`) printed
-  verbatim must fail the checks that name its label. Otherwise the lint reports an
-  error, because the scenario can't tell copying from answering. All 58 bundled
-  scenarios stay lint-clean.
+## 0.3.1 (2026-10-26)
 
-- **Clean profiles, measured with a canary** (an instruction in the user's own config
-  that a clean run must not follow):
-  - **claude:** `--setting-sources project,local --strict-mcp-config` + auto-memory off
-    **does** drop `~/.claude/CLAUDE.md`. A plain run followed the canary; the clean run
-    did not.
-  - **codex:** `--ignore-user-config --ephemeral --ignore-rules` does **not** skip
-    `~/.codex/AGENTS.md`, and no `exec` flag does. New **`cleanHome`**
-    (`evals.agents.<name>.cleanHome`): each run gets a `0700` temp `CODEX_HOME` holding
-    only a **link** to `auth.json`. With it, the canary is not followed and the login is
-    untouched. A refreshed token is moved back (one rename, never copied) only if the
-    real file is unchanged since the run started and no other writer holds the lock. The
-    dir is removed on exit, timeout and SIGINT/SIGTERM. The preview says "login only".
-- **Agents run on their own login, not an API key.** Each built-in agent has an
-  `authCheck` (`claude auth status`, `codex login status`, `opencode auth list`), run
-  with the agent's env and a 15 s timeout; its output is never printed or stored.
-  `--matrix` skips a logged-out agent as `not logged in`, and a single-agent eval
-  refuses one before asking to start. A single-agent eval picks `--agent`, then the
-  project's `evals.agent`, then the host agent (inside Claude Code), then the default.
-  The preview names the agent and why.
-- **`eval` checks machine load** before every job, as `gate` does. `--wait <min>` waits
-  for quiet, and the report records `contention`; a contended run says "re-run when
-  quiet". With a `broker`, nothing is sampled.
-- **Census: `COMMENTED_ASSERT` and `UNUSED_LOCAL`.** An `expect(` / `assert(` call inside
-  a comment in a case body is flagged (it caps like a weak claim). A call quoted in
-  backticks counts as prose. A `const`/`let` the case never reads is a hint, with the
-  case's assertion count, and never a cap.
-- **The sandbox is verified on real Podman** (6.1.4): no network for checks, allowlisted
-  env, no host home or credentials, files owned by the user, `chown` refused.
-  `HYVE_SANDBOX_REAL=podman|docker npm test` re-runs it.
+Fixed:
+- `externalGate` now replaces a preset's gates, instead of conflicting with them.
+- `pin --allow-fresh` records a waiver that `doctor` honours for that version only.
 
-## 0.3.1 — 2026-10-26
+## 0.3.0 (2026-10-26)
 
-Fixes found while adopting 0.3.0 in a repo with its own gate:
+Added:
+- **One definition of done:** `externalGate`, `evidence.status` and `train.via:
+  "external"` let a repository keep its own gate and merge path.
+- **`hyvemind pin`**, with `integrity` and a 14-day cooling-off period.
+- **`census`:** an AST census of every test case, with a grade ceiling per file.
+- **`affected` earns trust:** it stays advisory until 20 observations over 7 days with no
+  miss.
+- `gate` records machine load, and `--wait` waits for quiet.
+- `skills.defer`, and the optional tracegate-ci `broker`.
+- Probes check that the named test case **failed**, not just that its name appeared.
+- New skills: `cleanup`, `release` and `grade`.
+- Evals round 2: `write-spec` and `mine-skills` sharpened until they earned.
 
-- `externalGate` now **replaces** a preset's gates. In 0.3.0, any preset that
-  defined gates (for example `openwop`) made `externalGate` invalid unless the project
-  also set `"gates": []`. Gates the project lists itself still conflict with it.
-- `pin --allow-fresh` records `coolingOffWaived: "<version>"`, and `doctor` honours
-  it for that version only. Re-pinning a version past its cooling-off drops the waiver.
+Changed:
+- **Skills dropped the `bee-` prefix** for distinct names (`ship-change`, `write-spec`,
+  `plan-tasks`, `review-change`, `open-pr`, `evidence-rules`, `mine-skills`,
+  `live-ai-check`). `update` removes the old ones it installed and keeps edited copies.
+- `mine` asks before reading transcripts.
+- The reference moved to `docs/reference.md`.
 
-## 0.3.0 — 2026-10-26
+Fixed:
+- `ENOBUFS` from git in repositories with tens of thousands of files.
 
-- Evals round 2 (`docs/evals/2026-10-26-claude-r2.md`): the 12 changed skills re-measured. `write-spec` and `mine-skills` rules sharpened from the failing runs (now earning); `evidence-rules` scenario `docs-are-not-the-code` fixed (it dictated the wrong answer).
-- **`doctor`** runs the integrity checks (`hyvemind pin`). With `externalGate`, it
-  now warns only about real gaps: no `evidence.status` (agents follow prose that
-  `evidence` can't check), and `ship-change` installed while `train.via` isn't
-  `external` (a second merge path). The old blanket "competing skills" warning is
-  gone, because those skills now defer to the external gate.
+## 0.2.0 (2026-10-26)
 
-- **Skills drop the `bee-` prefix** and use distinct names instead: ship-change,
-  write-spec, plan-tasks, review-change, open-pr, evidence-rules, mine-skills and
-  live-ai-check. design-review, test-necessity, parallel-work, skill-eval and
-  ai-exchange are unchanged. `skills.prefix` now defaults to `''`.
-- **`update` removes skills it installed but no longer produces.** Untouched ones are
-  removed; edited ones are kept and reported. This migrates 0.2.x `bee-*` installs.
-- **`externalGate`**: a repo keeps its own gate and definition of done. `doctor`
-  warns when an installed skill would add a competing one.
-- **`hyvemind pin`** and **`integrity`** / **`coolingOffDays`** (default 14): pin
-  records npm's `dist.integrity` for the version in `cli`, and refuses a release
-  younger than the cooling-off period unless `--allow-fresh`. `src/integrity.mjs`
-  exports `checkIntegrity` for `doctor`: version match, registry integrity (with a
-  clear offline message) and publish age.
-- **`broker`**: an optional tracegate-ci lease for gates, train gates, probes and
-  eval agent runs.
-- **`skills.defer`**: map a bundled skill to a project skill that takes precedence.
-  The bundled skill is still installed, with a header saying to follow the project
-  skill where it applies. Unknown or excluded names are errors; `update` treats
-  (un)deferring like any other content change and keeps edited copies.
-- **`census`**: an AST census of every test case, ported from openwop-app's
-  `test-census.mjs`. On openwop-app's 2,763 backend test files it gives every file the
-  same ceiling as the original, and runs in 7 s. The ledger is keyed on blob sha, and
-  a recorded grade survives only while the file is unchanged.
-- **`mine-skills`**: mining is local (reads `~/.claude/projects`, no network). It asks
-  before each run and reports aggregates only, never transcript content.
-- **`open-pr`**: pushing your own branch needs no approval; opening the PR or posting a
-  comment does.
-- **Skills name the new config:** `open-pr`, `evidence-rules` and `ship-change` read
-  correctly with or without `evidence.status` (the project's status is the proof;
-  `--post` only reports it) and `train.via: "external"` (follow where `train` points);
-  `release` runs `hyvemind pin` when upgrading the CLI.
-- **New skill `cleanup`**: dead code is removed only when proved dead (zero
-  references and no dynamic path); protected categories; reports what it kept.
-- **New skill `release`**: SemVer from commits, lockstep bump, tag the merge sha,
-  verify the published artifact against a local build; asks before tagging.
-- **`live-ai-check`**: loopback-only target and a key allowlist; pause on 429 with a
-  recorded resume point; switch keys only on quota exhaustion; re-run a known-good
-  case to attribute a refusal; never loosen a validator to pass.
-- **`parallel-work`**: an advisory queue file in the git common dir, reconciled
-  with remote branches and PR state before it is trusted; no holds on other sessions;
-  a branch or worktree is removed only after `merge-base --is-ancestor` or `git cherry`
-  proves it landed.
-- **`design-review`, `write-spec`, `ship-change`**: "do nothing" is always an
-  alternative; options are scored on debt, foreclosure and reversibility with "what
-  would change my mind"; gap and risk registers (a gap with no path to closing is a
-  risk); never cut scope because the work is big, phase it; nothing is built before
-  the spec is `Accepted`. `design-review` adds a generator scan: find the code that
-  generates the problem, not just its instances. `ship-change` merges through the
-  project's own process when an external gate/status is configured.
-- **`evidence-rules`**: grade the code, not the documents (a claim from an ADR,
-  manifest, README or tracker is downgraded until checked); grade `origin/<base>`
-  when the checkout is behind.
-- **`review-change`**: the author never grades their own change; a refute pass on
-  every finding and every "looks fine"; coverage arithmetic in the report.
-- **`ai-exchange`**: data-minimisation and context-economy dimensions (fields sent
-  vs needed, bounded context, measured), and absence scans for the checks that should
-  exist and don't.
-- **Probes witness at case level**: with `probe.format: vitest|node`, `expectRed` must
-  match a case that **failed**. `expectOutput` substring matching can be fooled by a
-  passing case's name; a test shows exactly that.
-- `mine` asks for consent (or `--yes`) before reading transcripts.
-- **`mine`**: confidence now divides by the runs of A that were followed by a skill,
-  not all runs of A. Renamed skills merge (built-in aliases for hyvemind's own
-  renames, plus `mine.aliases`).
-- **`gate` records contention**: load, and test suites running from other
-  directories (not stopped ones, not watchers). A red result under contention is
-  reported as "re-run when quiet". `--wait <min>` waits for quiet. Skipped when a
-  broker queues the work.
-- **`affected` earns trust**: it stays in SHADOW until 20 observations over 7 days
-  with no miss (`--observe` runs everything and checks every failure was selected);
-  one miss resets it. `--status` shows where it stands.
-- **New `grade` skill** with rubric files for code, data, UX, i18n and parity. It
-  restores the method of openwop-app's six grade-* skills: a resumed tracker, coverage
-  arithmetic, mechanical checks first, evidence from both sides, caps (an accessibility
-  blocker caps an area at D), an independent grader plus a refute pass, an S/M/L path
-  to A+, and a human verification checklist. The data rubric carries the six-class
-  generator scan.
-- Fixed: `ENOBUFS` from git on repos with tens of thousands of files.
-- README rewritten around the problem and real output; the reference moved to
-  `docs/reference.md`.
-- **`evidence.status`**: one source of truth for done. When set, `hyvemind evidence`
-  takes a `success` commit status of that context on a clean HEAD (latest by
-  `created_at`) as the proof, names the proof source in its output, and
-  `evidence --post` posts no `hyvemind/gate` beside it.
-- **`train.via: "external"`**: `hyvemind train` refuses to merge and prints
-  `train.message` (where merges go instead), with no git changes.
+Added:
+- `evidence --post`: gate evidence as a GitHub commit status.
+- `train`: a merge queue that gates several PRs at once, checks the merged tree equals the
+  gated one, and bisects a red train.
+- `run`: a fresh agent per plan task, with the task's exit check and an independent
+  reviewer.
+- `affected`: test selection from the import graph.
+- Evals: 33 scenarios across 13 skills, `no-signal`, `--concurrency`, `--report` and
+  `--render`. The first real run: `spec` +0.50, `pr` +0.67, `plan` +0.50 after a rewrite,
+  and the other ten saturated on those scenarios.
+- 20 self-probes.
 
-## 0.2.0 — 2026-10-26
+## 0.1.0 (2026-10-25)
 
-- **`evidence --post`**: publishes gate evidence as a `hyvemind/gate` GitHub commit
-  status. It refuses uncommitted trees, partial runs, and trees that were never gated.
-- **`train`**: a merge queue, ported from openwop-app's `merge-train.sh`.
-  - Gates several PRs in one run, and merges only if the base didn't move.
-  - After merging, checks that the base's tree equals the gated tree
-    (`TREE MISMATCH` otherwise).
-  - Rebuilds and gates again once if the base moved; bisects a red train; skips a PR
-    that conflicts.
-  - Takes a lock so only one train runs per clone. Works with GitHub (`gh`) or plain
-    git branches (`--local`).
-- **`run`**: executes a `bee-plan` plan.
-  - One fresh agent per task, in its own worktree.
-  - Done is decided by the task's exit check, with one bounded repair attempt that is
-    told the failure.
-  - An independent reviewer must answer VERDICT: GO. One commit per task, and
-    re-runs resume.
-- **`affected`**: test-impact selection from the JS/TS import graph. Selects ALL tests
-  for config, lockfiles, or any change it can't trace.
-- **Evals**:
-  - `--concurrency`, `--report` (a markdown table of decisions) and `--render`.
-  - New verdict `no-signal`: both arms score 0%, so the scenario is broken. A
-    broken run is no longer read as "retire".
-  - `setup` and `output-not-matches` for scenarios; `evals.includeBundled`.
-  - The default Claude eval command allows read-only tools (Read, Grep, Glob, git
-    diff/status/log) in both arms. The prompt goes before `--allowedTools`, a
-    variadic flag that otherwise swallows it.
-  - 33 bundled scenarios across 13 skills, aimed at failures the skill exists to
-    prevent. They replace the v0.1 starter scenarios, which scored 100% without the
-    skill.
-- **New skills**: `bee-ai-exchange` (grades LLM↔app information exchange) and
-  `bee-live-qualify` (real-vendor runs; keys by name only; results classified
-  honestly).
-- `bee-plan` writes exit checks in backticks, so `run` can execute them. `bee-ship`,
-  `bee-pr` and `bee-review` point at `run`, `affected`, `train` and `evidence --post`.
-- 20 self-probes. Each one breaks a core guarantee and shows that its test turns red.
-- **First real evals** ([docs/evals/2026-10-26-claude.md](docs/evals/2026-10-26-claude.md)), on Claude Code:
-  - Earning: `spec` +0.50, `pr` +0.67, and `plan` +0.50 after a measured rewrite of its exit-check rule.
-  - Saturated on these scenarios: the other ten skills. That is not a retirement verdict until a second model or harder scenarios are tested.
+First release, briefly published as `evidence-harness`.
 
-## 0.1.0 — 2026-10-25
-
-First release (initially published as `evidence-harness`; renamed to hyvemind the same day, before any use).
-
-- CLI: `init`, `update`, `doctor`, `list`, `gate`, `evidence`, `probe`, `eval`, `mine`.
-- Gate verdicts bound to a working-tree hash (`green` / `red` / `invalid`); partial
-  runs never count as evidence.
-- Sabotage probes with verified restore and `errorPatterns`.
-- Skill evals: bare vs with-skill lift per agent and model, with a minimum-runs guard.
-- Transcript miner for skill chains (port of openwop-app's `skill-miner/mine.sh`).
-- Skills call the CLI through a configurable `cli`, defaulting to an exact registry version.
-- 11 `bee-` skills: ship, spec, design-review, plan, review, test-necessity, pr, evidence,
-  parallel-work, skill-eval, skill-miner.
-- Presets: `openwop`, `node`, `python`, `generic`.
+- `init`, `update`, `doctor`, `list`, `gate`, `evidence`, `probe`, `eval` and `mine`.
+- Gate verdicts bound to a working-tree hash.
+- Sabotage probes, skill evals, and a transcript miner.
+- 11 skills, and the `openwop`, `node`, `python` and `generic` presets.
