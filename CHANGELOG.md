@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Eval runs work under a tracegate broker.** They asked for the class `agent`, which
+  tracegate's broker refuses, so with `broker` configured every eval run exited 2, and
+  `--quiet` hid the reason. They now use `adhoc`, and a test checks every default class
+  against the ones tracegate accepts.
+- **Docs:** the `tracegate run` gate example repeated `vitest run` after `--`, which
+  tracegate passes to Vitest as file filters.
+
 ## 0.4.0 — 2026-10-27
 
 - **`probe` takes a per-worktree lock** (a second probe refuses; stale locks are

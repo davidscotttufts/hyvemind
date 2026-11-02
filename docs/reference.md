@@ -144,10 +144,13 @@ every gate, train gate, sabotage probe and eval agent run in `tracegate lease`:
 ```
 
 hyvemind never depends on it. Without `broker`, commands run directly. `doctor`
-checks that the broker is reachable. For Vitest projects, tracegate can also be the
-gate itself, running only what a change can affect once that has been earned:
-`"gates": [{ "name": "backend", "run": "tracegate run --lane backend -- vitest run" }]`.
-hyvemind still ties the verdict to the exact tree.
+checks that the broker is reachable. Gates, train gates, probes and eval runs use
+tracegate's `gate`, `train`, `measure` and `adhoc` classes; override them under
+`broker.classes`. For Vitest projects, tracegate can also be the gate itself, running
+only what a change can affect once that has been earned:
+`"gates": [{ "name": "backend", "run": "tracegate run --lane backend" }]`. Arguments
+after `--` go to `vitest run`, so don't repeat `vitest run` there. hyvemind still ties
+the verdict to the exact tree.
 
 ## The skills
 
