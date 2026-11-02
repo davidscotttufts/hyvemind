@@ -79,9 +79,9 @@ merged: #1 · red: — · conflicts: — · refused: — · gate runs: 1
 
 The merge queue gates several PRs as one combined tree. It merges only if the base
 didn't move, then checks that `main`'s new tree **is** the tree it tested. A red
-train splits itself in half to name the culprit, and everything else lands (tested
-with branches, not yet on a real red PR).
-hyvemind's own releases go through it.
+train splits itself in half to name the culprit, and everything else lands. (That's
+tested with branches, not yet on a real red PR.) hyvemind's own releases go through
+it.
 
 ### Each task gets a fresh agent, and a check decides when it's done
 
@@ -96,8 +96,9 @@ T2 done · review GO
 Each task in a plan goes to a new agent process in its own worktree. It's accepted
 only when the task's own exit command passes. A failed attempt is rolled back and
 retried once, with the failing output. Then a separate agent reviews the diff and
-must answer `VERDICT: GO`. One commit per task, and re-running resumes. With `--sandbox podman` the checks run
-in a container with no network, and the agent can only read and edit files.
+must answer `VERDICT: GO`. Each task is one commit, and re-running resumes. With
+`--sandbox podman`, the checks run in a container with no network, and the agent can
+only read and edit files.
 
 ### Instructions that no longer help get noticed
 
@@ -159,6 +160,8 @@ merging to it.
 ## More
 
 - [Reference](docs/reference.md): every command, the config file, presets, upgrading.
+- [Evals guide](docs/evals-guide.md): verdicts, scenario lint, the multi-agent matrix, and
+  the clean profile.
 - [Design](docs/design.md): where this sits among other agent tools, and what's next.
 - [Landscape](docs/landscape-2026-10.md): how hyvemind compares with the open-source agent tools, and what to adopt next.
 - [Evals](docs/evals/): raw reports.
