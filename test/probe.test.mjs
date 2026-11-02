@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
-import { failingCases, runProbe, runProbes } from '../src/probe.mjs';
+import { failingCases, runProbe, runProbes, formatEnv } from '../src/probe.mjs';
 import { repo, write } from './helpers.mjs';
 
 const SRC = 'export const max = (a, b) => (a > b ? a : b);\n';
@@ -89,4 +89,12 @@ test('--isolate probes a throwaway worktree and never touches the live tree', ()
   assert.equal(results[0].verdict, 'witnessed', 'HEAD is probed, not the dirty live file');
   assert.match(readFileSync(join(dir, 'src/max.mjs'), 'utf8'), /live edit in progress/, 'the live file is untouched');
   assert.ok(!existsSync(isolated), 'the throwaway worktree is removed');
+});
+
+test('the node reporter rides NODE_OPTIONS, not the command line, and keeps what was there', () => {
+  // Node 20 reads an option after the test file as a file pattern, so appending
+  // `--test-reporter=tap` to `node --test {test}` made the run test nothing.
+  assert.deepEqual(formatEnv('node', {}), { NODE_OPTIONS: '--test-reporter=tap' });
+  assert.deepEqual(formatEnv('node', { NODE_OPTIONS: '--max-old-space-size=4096' }), { NODE_OPTIONS: '--max-old-space-size=4096 --test-reporter=tap' });
+  assert.deepEqual(formatEnv('vitest', {}), {});
 });
