@@ -6,9 +6,9 @@ Every command, the config file and the presets. For what hyvemind is and why, se
 ## Install
 
 ```bash
-npx -y hyvemind@0.4.0 init      # detects the project; writes hyvemind.json, the skills and an AGENTS.md block
-npx -y hyvemind@0.4.0 doctor    # checks the setup
-npx -y hyvemind@0.4.0 gate      # runs your gates and records the evidence
+npx -y hyvemind@0.4.1 init      # detects the project; writes hyvemind.json, the skills and an AGENTS.md block
+npx -y hyvemind@0.4.1 doctor    # checks the setup
+npx -y hyvemind@0.4.1 gate      # runs your gates and records the evidence
 ```
 
 Commit `hyvemind.json`, the installed skills, `AGENTS.md` and `.hyve/manifest.json`. Evidence
@@ -19,8 +19,8 @@ field in `hyvemind.json`. An exact version means `npx` can't pick up a look-alik
 To pin hyvemind as a dev dependency instead:
 
 ```bash
-npm i -D hyvemind@0.4.0                           # from npm
-npm i -D github:davidscotttufts/hyvemind#v0.4.0   # or from GitHub
+npm i -D hyvemind@0.4.1                           # from npm
+npm i -D github:davidscotttufts/hyvemind#v0.4.1   # or from GitHub
 npx hyvemind init                                 # writes "cli": "npx hyvemind"
 ```
 
@@ -30,7 +30,7 @@ An exact version doesn't stop different bytes being served under it, or a malici
 release being adopted the day it appears. `hyvemind pin` pins the content too:
 
 ```bash
-npx -y hyvemind@0.4.0 pin       # writes "cli" and "integrity" into hyvemind.json
+npx -y hyvemind@0.4.1 pin       # writes "cli" and "integrity" into hyvemind.json
 ```
 
 - **Integrity.** `integrity` is npm's `dist.integrity` for that version. `doctor` checks it
