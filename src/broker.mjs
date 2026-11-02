@@ -6,7 +6,10 @@
 // Without `broker`, commands run directly, as before. hyvemind never depends on it.
 import { spawnSync } from 'node:child_process';
 
-export const CLASSES = { gate: 'gate', train: 'train', probe: 'measure', eval: 'agent' };
+// tracegate's broker refuses a class it doesn't know (its classes: deploy, gate, train,
+// measure, adhoc, daemon). An eval run is an agent's work, which is its `adhoc` class.
+export const CLASSES = { gate: 'gate', train: 'train', probe: 'measure', eval: 'adhoc' };
+export const TRACEGATE_CLASSES = ['deploy', 'gate', 'train', 'measure', 'adhoc', 'daemon'];
 
 // Shell command form (gates and probes run through a shell).
 export function leaseShell(cfg, kind, label, command) {

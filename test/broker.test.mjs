@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
-import { leaseArgv, leaseShell } from '../src/broker.mjs';
+import { CLASSES, TRACEGATE_CLASSES, leaseArgv, leaseShell } from '../src/broker.mjs';
 import { runGates } from '../src/gate.mjs';
 import { repo, write } from './helpers.mjs';
 
@@ -28,5 +28,11 @@ test('with a broker, gates run through `lease` with the right class, and the ver
   assert.equal(record.verdict, 'red');
   const log = readFileSync(join(dir, 'broker.log'), 'utf8');
   assert.match(log, /^lease --class gate --label hyvemind:gate:ok --quiet -- sh -c echo "it's fine"$/m);
-  assert.deepEqual(leaseArgv(cfg, 'eval', 'pr/x', ['claude', '-p', 'q']).slice(1, 9), ['lease', '--class', 'agent', '--label', 'hyvemind:eval:pr/x', '--quiet', '--tokens', '1']);
+  assert.deepEqual(leaseArgv(cfg, 'eval', 'pr/x', ['claude', '-p', 'q']).slice(1, 9), ['lease', '--class', 'adhoc', '--label', 'hyvemind:eval:pr/x', '--quiet', '--tokens', '1']);
+});
+
+test('every default class is one tracegate\'s broker accepts', () => {
+  // The broker refuses an unknown class, and `--quiet` hides why: an eval run under
+  // `--class agent` exited 2 without a word.
+  for (const [kind, cls] of Object.entries(CLASSES)) assert.ok(TRACEGATE_CLASSES.includes(cls), `${kind} → ${cls}`);
 });
