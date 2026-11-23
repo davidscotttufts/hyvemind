@@ -6,11 +6,17 @@ import { isRepo } from './git.mjs';
 import { brokerHealth } from './broker.mjs';
 import { checkIntegrity } from './integrity.mjs';
 import { runtimeHealth, sandboxConfig } from './sandbox.mjs';
-import { BLOCK_END, installSkills, readManifest, selectedSkills } from './install.mjs';
+import { BLOCK_END, installSkills, readManifest, renamedSkills, selectedSkills, unmanagedCopies } from './install.mjs';
 
 // With an external gate, the skills defer to it (open-pr, review-change and
 // evidence-rules read evidence.status / externalGate). Two gaps remain worth a warning:
 // no machine-checkable done signal, and ship-change merging through hyvemind's train.
+
+export function olderThan(a, b) {
+  const [x, y] = [a, b].map((v) => v.split('.').map(Number));
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i];
+  return false;
+}
 
 // Each check: { ok: true | false | 'warn', name, detail }
 export function doctor(root) {
@@ -18,7 +24,15 @@ export function doctor(root) {
   const add = (ok, name, detail = '') => checks.push({ ok, name, detail });
   add(isRepo(root), 'git repository', isRepo(root) ? '' : 'gate evidence is bound to git trees; run inside a repo');
   let cfg;
-  try { cfg = readConfig(root); add(true, CONFIG_FILE, `preset ${cfg.preset}`); } catch (e) { add(false, CONFIG_FILE, e.message); return checks; }
+  try { cfg = readConfig(root); add(true, CONFIG_FILE, `preset ${cfg.preset}`); } catch (e) {
+    add(false, CONFIG_FILE, e.message);
+    // No config, but skills that look like hyvemind's: they were copied in by hand.
+    const copies = isRepo(root) ? unmanagedCopies(root) : [];
+    if (copies.length) add('warn', 'unmanaged skill copies', `${copies.join(', ')} look like hyvemind skills but nothing manages them; run "hyvemind init" to track and update them`);
+    return checks;
+  }
+  const renamed = renamedSkills(cfg);
+  if (renamed.length) add('warn', 'renamed skills', `${CONFIG_FILE} uses old names: ${renamed.map((r) => `${r.old} → ${r.now}`).join(', ')}. They still resolve; update the names`);
   if (cfg.externalGate) {
     add(true, 'gate', `external: ${cfg.externalGate.run}`);
     if (!cfg.evidence?.status) {
@@ -38,6 +52,8 @@ export function doctor(root) {
   add(stale === 0 ? true : 'warn', 'skills current', stale ? `${stale} file(s) would change; run "hyvemind update"` : `${by('same').length} file(s)`);
   if (by('modified').length) add('warn', 'skills edited locally', by('modified').map((p) => p.rel).join(', '));
   if (by('foreign').length) add('warn', 'name collisions', `${by('foreign').map((p) => p.rel).join(', ')} existed before hyvemind; change skills.prefix or remove them`);
+  const copies = unmanagedCopies(root, cfg.skills.targets).filter((c) => !plan.some((p) => p.rel.startsWith(`${c}/`)));
+  if (copies.length) add('warn', 'unmanaged skill copies', `${copies.join(', ')} look like hyvemind skills but are not in the manifest (copied by hand, or left by an older prefix); remove them or re-install`);
   for (const p of cfg.agentsMd.paths) {
     const f = join(root, p);
     const has = existsSync(f) && readFileSync(f, 'utf8').includes(BLOCK_END);
@@ -47,7 +63,10 @@ export function doctor(root) {
   // `npx hyvemind` is safe only when it resolves locally or globally — otherwise npx
   // would download whatever the npm registry serves under that name.
   if (/@\d+\.\d+\.\d+/.test(cfg.cli)) {
-    add(true, 'cli', `${cfg.cli} (exact registry version)`);
+    // Skills run cfg.cli, so an old pin means agents run old checks whatever is installed here.
+    const pinned = cfg.cli.match(/hyvemind@(\d+\.\d+\.\d+)/)?.[1];
+    const older = pinned && olderThan(pinned, pkgVersion());
+    add(older ? 'warn' : true, 'cli', older ? `${cfg.cli} is older than the hyvemind running this check (${pkgVersion()}); bump "cli", then run "hyvemind pin"` : `${cfg.cli} (exact registry version)`);
   } else {
     const local = existsSync(join(root, 'node_modules/.bin/hyvemind'));
     const global = !local && spawnSync('sh', ['-c', 'command -v hyvemind'], { encoding: 'utf8' }).status === 0;

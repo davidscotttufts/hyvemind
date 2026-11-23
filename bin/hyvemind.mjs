@@ -12,9 +12,9 @@ import { affected, failingFilesFromVitest, observe, readTrustLedger, trust } fro
 import { checkMatrix, chooseAgent, historicalMedian, loggedIn, lintScenarios, matrixPreview, parseTargets, planEvals, preview, renderPreview, renderReport, runEvals, runMatrix, selectAgents } from '../src/evals.mjs';
 import { runGates } from '../src/gate.mjs';
 import { git } from '../src/git.mjs';
-import { bundledSkills, installAgentsMd, installSkills, selectedSkills } from '../src/install.mjs';
+import { bundledSkills, installAgentsMd, installSkills, renamedSkills, selectedSkills } from '../src/install.mjs';
 import { pin } from '../src/integrity.mjs';
-import { mine } from '../src/mine.mjs';
+import { friction, mine } from '../src/mine.mjs';
 import { runProbes } from '../src/probe.mjs';
 import { runPlan } from '../src/run.mjs';
 import { checkEvidence, postStatus } from '../src/status.mjs';
@@ -78,6 +78,9 @@ Usage: hyvemind <command> [options]
             --lint            check scenarios against their good/bad examples (no model calls)
   mine      Mine Claude Code transcripts for skill usage and chains
             --filter <substr>  --all  --root <dir>  --json  --yes (consent; asked otherwise)
+            --friction         what the human did by hand in the last --days <n> (default 30):
+                               "keep going"/"status?" nudges, AskUserQuestion stops, worktrees
+                               added vs removed. The baseline a workflow change is judged against
 
 Global: --cwd <dir> (project root; default: the git toplevel of the current directory)
 `;
@@ -88,7 +91,7 @@ const { values: o, positionals } = parseArgs({
     cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' },
     only: { type: 'string' }, 'keep-going': { type: 'boolean' }, quiet: { type: 'boolean' },
     agent: { type: 'string' }, model: { type: 'string' }, trials: { type: 'string' }, keep: { type: 'boolean' },
-    filter: { type: 'string' }, all: { type: 'boolean' }, root: { type: 'string' }, json: { type: 'boolean' },
+    filter: { type: 'string' }, friction: { type: 'boolean' }, days: { type: 'string' }, all: { type: 'boolean' }, root: { type: 'string' }, json: { type: 'boolean' },
     post: { type: 'boolean' }, yes: { type: 'boolean' }, isolate: { type: 'boolean' }, verbose: { type: 'boolean' }, sandbox: { type: 'string' }, wait: { type: 'string' }, observe: { type: 'boolean' }, status: { type: 'boolean' }, base: { type: 'string' }, run: { type: 'boolean' }, 'no-merge': { type: 'boolean' },
     'no-bisect': { type: 'boolean' }, local: { type: 'boolean' }, spec: { type: 'string' }, 'no-review': { type: 'boolean' },
     branch: { type: 'string' }, concurrency: { type: 'string' }, md: { type: 'string' }, report: { type: 'boolean' }, out: { type: 'string' }, render: { type: 'string' }, lint: { type: 'boolean' },
@@ -112,6 +115,10 @@ function summarize(actions) {
   return Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ');
 }
 
+function warnRenamed(cfg) {
+  for (const r of renamedSkills(cfg)) console.log(`note: ${CONFIG_FILE} names the skill "${r.old}", which is now "${r.now}"; installing "${r.now}"`);
+}
+
 async function main() {
   if (o.version) return console.log(pkgVersion());
   if (o.help || !cmd) return console.log(HELP);
@@ -133,6 +140,7 @@ async function main() {
         console.log(`detected preset "${preset}" (${o.preset ? 'forced' : d.reason})`);
       }
       const cfg = resolveConfig(raw);
+      warnRenamed(cfg);
       const dry = Boolean(o['dry-run']);
       if (!dry && !existsSync(file)) writeConfig(root, raw);
       console.log(`skills: ${summarize(installSkills(root, cfg, { dryRun: dry, force: o.force }))}`);
@@ -142,6 +150,7 @@ async function main() {
     }
     case 'update': {
       const cfg = readConfig(root);
+      warnRenamed(cfg);
       const dry = Boolean(o['dry-run']);
       console.log(`skills: ${summarize(installSkills(root, cfg, { dryRun: dry, force: o.force }))}`);
       console.log(`agents md: ${summarize(installAgentsMd(root, cfg, { dryRun: dry }))}`);
@@ -383,6 +392,21 @@ async function main() {
         const ans = await new Promise((r) => rl.question(`Read ${what}? [y/N] `, r));
         rl.close();
         if (!/^y(es)?$/i.test(ans.trim())) { console.log('not reading transcripts'); return; }
+      }
+      const projectCfg = (pick, fallback) => { try { return pick(readConfig(root)) ?? fallback; } catch { return fallback; } };
+      if (o.friction) {
+        const days = o.days === undefined ? 30 : Number(o.days);
+        if (!Number.isFinite(days) || days <= 0) throw new Error('--days must be a positive number');
+        const f = friction({ root: scanRoot, filter: filterFor, days, aliases: projectCfg((c) => c.mine?.aliases, {}), prefix: projectCfg((c) => c.skills.prefix, '') });
+        if (o.json) return console.log(JSON.stringify(f, null, 2));
+        console.log(`last ${f.days} days · ${f.sessions} transcript(s) · filter ${f.filter ?? '<all>'}`);
+        console.log(`typed messages   ${f.typed}`);
+        console.log(`nudges           ${f.nudges.total} (${Math.round(f.nudgeShare * 100)}% of typed) · continue ${f.nudges.continue} · status ${f.nudges.status}`);
+        console.log(`agent questions  ${f.asks} (AskUserQuestion)`);
+        console.log(`worktrees        ${f.worktrees.added} added · ${f.worktrees.removed} removed`);
+        console.log('\ntop skills');
+        for (const [k, n] of f.skills) console.log(`  ${String(n).padStart(4)}  ${k}`);
+        return;
       }
       const r = mine({
         root: scanRoot, filter: filterFor,

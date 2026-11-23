@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+Added:
+- **`mine --friction`**: counts, over the last `--days` (default 30), the typed messages
+  that were only "keep going" or "status?", the `AskUserQuestion` stops, and worktrees
+  added against removed. It is the baseline for judging a change to how you work.
+- `doctor` warns about a `cli` pin older than the hyvemind running the check, and about
+  skill folders that look like hyvemind's but were copied in by hand (no manifest entry).
+  The second warning also shows in a repo with no `hyvemind.json`.
+
+Fixed:
+- A `hyvemind.json` written for 0.2.0 could not `update`: `skills.include`, `exclude` and
+  `defer` still named skills that were renamed in 0.3.0 (`evidence`, `skill-miner`, `pr`,
+  `spec`, `plan`, `review`, `ship`, `live-qualify`). Old names now resolve to the current
+  skill, with a note from `init`/`update` and a `doctor` warning.
+
 ## 0.4.1 (2026-11-02)
 
 Fixed:

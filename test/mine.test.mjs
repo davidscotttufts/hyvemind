@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { canon, extract, mine } from '../src/mine.mjs';
+import { canon, extract, friction, mine, nudgeKind } from '../src/mine.mjs';
 import { write } from './helpers.mjs';
 
 const cmd = (s) => `{"type":"user","message":"<command-name>/${s}</command-name>"}`;
@@ -53,4 +53,50 @@ test('confidence counts only runs of A that were followed by a skill; renamed sk
   assert.ok(!('bee-review' in Object.fromEntries(r.top)), 'bee-review merged');
   assert.equal(Object.fromEntries(r.top)['review-change'], 1);
   assert.ok('plan-tasks -> ship' in c, 'project alias applied');
+});
+
+test('friction counts only what a human typed, inside the window, and what agents did', () => {
+  const root = mkdtempSync(join(tmpdir(), 'hyve-friction-'));
+  const now = Date.parse('2026-11-20T00:00:00Z');
+  const at = (daysAgo) => new Date(now - daysAgo * 86_400_000).toISOString();
+  const user = (content, extra = {}) => JSON.stringify({ type: 'user', timestamp: at(1), origin: { kind: 'human' }, message: { content }, ...extra });
+  const use = (name, input, extra = {}) => JSON.stringify({ type: 'assistant', timestamp: at(1), message: { content: [{ type: 'tool_use', name, input }] }, ...extra });
+  write(root, {
+    'p/s1.jsonl': [
+      user('keep going'), user('What is the status?'), user('proceed with your recommendations'),
+      user('rename the export to fooBar and update its callers'),
+      user('keep going', { origin: { kind: 'peer' } }),          // a teammate's relay is not the human
+      user('proceed', { isMeta: true }),                          // injected, not typed
+      user('a relayed prompt with no mark', { origin: undefined }), // unmarked line in a marked file
+      user('keep going', { timestamp: at(45) }),                  // outside the window
+      user('<command-name>/grade-code</command-name>'),
+      user([{ type: 'tool_result', content: 'continue' }]),
+      use('AskUserQuestion', { questions: [] }),
+      use('Skill', { skill: 'bee-review' }),
+      use('Bash', { command: 'git worktree add ../w1 -b x && git -C ../w1 status' }),
+      use('Bash', { command: 'git worktree add ../w2; git worktree remove ../w1' }),
+      use('Bash', { command: 'echo "docs mention worktree add"' }),
+      use('AskUserQuestion', {}, { timestamp: at(45) }),
+    ].join('\n') + '\n',
+    // No origin marks anywhere: an older transcript, whose plain user lines are the human's.
+    'p/old.jsonl': [JSON.stringify({ type: 'user', timestamp: at(2), message: { content: 'resume' } }), JSON.stringify({ type: 'user', timestamp: at(2), message: { content: 'add a test for the parser' } })].join('\n') + '\n',
+  });
+  const f = friction({ root, days: 30, now });
+  assert.equal(f.typed, 6, 'four marked human lines + two legacy lines');
+  assert.deepEqual(f.nudges, { continue: 3, status: 1, total: 4 });
+  assert.equal(f.nudgeShare, 0.67);
+  assert.equal(f.asks, 1, 'the question outside the window is not counted');
+  assert.deepEqual(f.worktrees, { added: 2, removed: 1 }, 'an echo that mentions the words is not a worktree command');
+  assert.deepEqual(Object.fromEntries(f.skills), { 'grade-code': 1, 'review-change': 1 });
+  assert.equal(friction({ root, days: 60, now }).nudges.total, 5, 'a wider window includes the older nudge');
+});
+
+test('nudgeKind: only short messages that say nothing but "go on" or "status?"', () => {
+  assert.equal(nudgeKind('proceed'), 'continue');
+  assert.equal(nudgeKind('ok, keep going'), 'continue');
+  assert.equal(nudgeKind("what's next?"), 'status');
+  assert.equal(nudgeKind('proceed with your recommendations'), 'continue');
+  assert.equal(nudgeKind('proceed, but first move the parser into its own module'), null, 'a message that goes on to direct work is not a nudge');
+  assert.equal(nudgeKind('status of the deploy script is wrong, fix line 3'), null);
+  assert.equal(nudgeKind('rename the function'), null);
 });

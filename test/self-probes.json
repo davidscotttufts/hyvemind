@@ -928,5 +928,45 @@
     "expectOutput": [
       "codex clean profile"
     ]
+  },
+  {
+    "id": "friction-human-only",
+    "src": "src/mine.mjs",
+    "old": "if (j.isMeta || j.isSidechain || (j.origin && j.origin.kind !== 'human')) continue;",
+    "new": "if (j.isMeta || j.isSidechain) continue;",
+    "test": "test/mine.test.mjs",
+    "expectOutput": [
+      "friction counts only what a human typed"
+    ]
+  },
+  {
+    "id": "friction-window",
+    "src": "src/mine.mjs",
+    "old": "if (!j.timestamp || Date.parse(j.timestamp) < since || Date.parse(j.timestamp) > now) continue;",
+    "new": "if (!j.timestamp) continue;",
+    "test": "test/mine.test.mjs",
+    "expectOutput": [
+      "friction counts only what a human typed"
+    ]
+  },
+  {
+    "id": "unmanaged-copies-skip-managed",
+    "src": "src/install.mjs",
+    "old": "if (!managed.some((m) => m.startsWith(`${rel}/`))) out.push(rel);",
+    "new": "out.push(rel);",
+    "test": "test/install.test.mjs",
+    "expectOutput": [
+      "unmanagedCopies finds hand-copied"
+    ]
+  },
+  {
+    "id": "renamed-never-bundled-refused",
+    "src": "src/install.mjs",
+    "old": "if (unknown.length) throw new Error(`skills.include names unknown skills",
+    "new": "if (false) throw new Error(`skills.include names unknown skills",
+    "test": "test/install.test.mjs",
+    "expectOutput": [
+      "include/exclude select skills"
+    ]
   }
 ]

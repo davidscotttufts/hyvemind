@@ -134,7 +134,7 @@ hyvemind train <pr…> [--no-merge] [--no-bisect] [--local] [--base branch] [--v
 hyvemind run plan.md [--spec spec.md] [--only T1,T2] [--no-review] [--branch name] [--sandbox podman|docker]
 hyvemind probe probes.json [--isolate]
 hyvemind eval [skill[:scenario]…] [--agent a] [--matrix] [--trials n] [--yes] [--dry-run] …
-hyvemind mine [--all] [--json] [--yes]
+hyvemind mine [--all] [--json] [--yes] [--friction [--days <n>]]
 ```
 
 Every command takes `--cwd <dir>`; the default is the git root of the current directory.
@@ -291,6 +291,17 @@ verdicts, scenario lint, the multi-agent matrix and the clean profile, and
 
 `hyvemind mine` reads your Claude Code transcripts, locally and only after asking, for
 skill chains you repeat by hand, and proposes combined skills. It reports aggregates only.
+
+`hyvemind mine --friction [--days 30]` counts what you did by hand over the window:
+
+- **nudges:** typed messages that only say "keep going" or ask "status?", as a share of
+  everything you typed;
+- **agent questions:** `AskUserQuestion` calls, each one an agent stopped on you;
+- **worktrees** added against removed.
+
+Only lines you typed count: relayed teammate messages, injected prompts and tool results
+are left out. Run it before and after changing how you work. If the numbers don't move,
+the change didn't help.
 
 ## The skills
 

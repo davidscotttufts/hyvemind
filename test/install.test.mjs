@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
-import { BLOCK_BEGIN, BLOCK_END, agentsBlock, bundledSkills, installAgentsMd, installSkills, render, upsertBlock } from '../src/install.mjs';
+import { BLOCK_BEGIN, BLOCK_END, agentsBlock, bundledSkills, installAgentsMd, installSkills, render, renamedSkills, selectedSkills, unmanagedCopies, upsertBlock } from '../src/install.mjs';
 import { repo, write } from './helpers.mjs';
 
 const cfg = (over = {}) => resolveConfig({ version: 1, gates: [{ name: 'test', run: 'npm test' }], ...over });
@@ -167,4 +167,29 @@ test('skills.defer rejects unknown bundled names, skills not installed, and bad 
   assert.throws(() => installSkills(dir, cfg({ skills: { include: ['write-spec'], defer: { 'open-pr': 'pr' } } })), /does not install .*: open-pr/);
   assert.throws(() => cfg({ skills: { defer: { 'open-pr': 'has space' } } }), /skills\.defer must map/);
   assert.throws(() => cfg({ skills: { defer: ['open-pr'] } }), /skills\.defer must map/);
+});
+
+test('a config written for an older release still installs: renamed skills resolve to their current names', () => {
+  const dir = repo();
+  // openwop-app's real 0.2.0 include list.
+  const old = cfg({ skills: { include: ['evidence', 'skill-eval', 'skill-miner'], exclude: ['pr'], defer: { evidence: 'our-evidence' }, targets: ['.claude/skills'] } });
+  assert.deepEqual(selectedSkills(old), ['evidence-rules', 'skill-eval', 'mine-skills']);
+  assert.deepEqual(renamedSkills(old), [{ old: 'evidence', now: 'evidence-rules' }, { old: 'skill-miner', now: 'mine-skills' }, { old: 'pr', now: 'open-pr' }]);
+  installSkills(dir, old);
+  assert.match(readFileSync(join(dir, '.claude/skills/evidence-rules/SKILL.md'), 'utf8'), /Deferred to the project skill `our-evidence`/, 'defer under the old name still applies');
+  assert.ok(existsSync(join(dir, '.claude/skills/mine-skills/SKILL.md')));
+  assert.deepEqual(renamedSkills(cfg()), []);
+  assert.throws(() => selectedSkills(cfg({ skills: { include: ['never-existed'] } })), /unknown skills: never-existed/, 'a name that was never bundled is still refused');
+});
+
+test('unmanagedCopies finds hand-copied hyvemind skills and ignores managed and unrelated ones', () => {
+  const dir = repo();
+  installSkills(dir, cfg({ skills: { include: ['open-pr'], targets: ['.claude/skills'] } }));
+  write(dir, {
+    '.claude/skills/bee-evidence/SKILL.md': '---\nname: bee-evidence\n---\ncopied from another repo\n',
+    '.claude/skills/review-change/SKILL.md': '---\nname: review-change\n---\nrun `npx hyvemind gate` first\n',
+    '.claude/skills/plan/SKILL.md': '---\nname: plan\n---\nthis project\'s own planning skill\n',
+    '.claude/skills/grade-code/SKILL.md': '---\nname: grade-code\n---\nmentions hyvemind but is not a bundled name\n',
+  });
+  assert.deepEqual(unmanagedCopies(dir), ['.claude/skills/bee-evidence', '.claude/skills/review-change']);
 });

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join, relative, dirname } from 'node:path';
 import { PKG_ROOT, STATE_DIR, pkgVersion } from './config.mjs';
+import { LEGACY_PREFIX, RENAMED } from './aliases.mjs';
 
 export const BLOCK_BEGIN = '<!-- hyvemind:begin (managed by `hyvemind update`; edit hyvemind.json instead) -->';
 export const BLOCK_END = '<!-- hyvemind:end -->';
@@ -16,19 +17,61 @@ export function bundledSkills() {
   return readdirSync(dir).filter((d) => existsSync(join(dir, d, 'SKILL.md'))).sort();
 }
 
+// A name that is no longer bundled but was renamed resolves to its current name, so a
+// config written for an older release still installs. renamedSkills() lists them for a warning.
+const current = (all) => (s) => (!all.includes(s) && all.includes(RENAMED[s]) ? RENAMED[s] : s);
+
+export function renamedSkills(cfg) {
+  const all = bundledSkills();
+  const names = [...(Array.isArray(cfg.skills.include) ? cfg.skills.include : []), ...cfg.skills.exclude, ...Object.keys(cfg.skills.defer ?? {})];
+  return [...new Set(names)].filter((s) => current(all)(s) !== s).map((s) => ({ old: s, now: RENAMED[s] }));
+}
+
+// skills.defer with renamed keys resolved.
+export function deferMap(cfg) {
+  const cur = current(bundledSkills());
+  return Object.fromEntries(Object.entries(cfg.skills.defer ?? {}).map(([k, v]) => [cur(k), v]));
+}
+
 export function selectedSkills(cfg) {
   const all = bundledSkills();
-  const inc = cfg.skills.include === 'all' ? all : cfg.skills.include;
+  const cur = current(all);
+  const inc = cfg.skills.include === 'all' ? all : [...new Set(cfg.skills.include.map(cur))];
   const unknown = inc.filter((s) => !all.includes(s));
   if (unknown.length) throw new Error(`skills.include names unknown skills: ${unknown.join(', ')} (available: ${all.join(', ')})`);
-  const chosen = inc.filter((s) => !cfg.skills.exclude.includes(s));
+  const exclude = cfg.skills.exclude.map(cur);
+  const chosen = inc.filter((s) => !exclude.includes(s));
   // A defer for a skill that is not installed would silently do nothing: refuse it.
-  const defer = Object.keys(cfg.skills.defer ?? {});
+  const defer = Object.keys(deferMap(cfg));
   const unknownDefer = defer.filter((s) => !all.includes(s));
   if (unknownDefer.length) throw new Error(`skills.defer names unknown skills: ${unknownDefer.join(', ')} (available: ${all.join(', ')})`);
   const notInstalled = defer.filter((s) => !chosen.includes(s));
   if (notInstalled.length) throw new Error(`skills.defer names skills this project does not install (excluded or not included): ${notInstalled.join(', ')}`);
   return chosen;
+}
+
+// Skill folders that look like hyvemind's but that no manifest accounts for: copied in
+// by hand from another repo. They never update and nothing notices when they drift.
+// A folder counts when its name (minus the 0.2.0 "bee-" prefix) is a current or former
+// bundled skill AND it either carries that prefix or its SKILL.md mentions hyvemind.
+export function unmanagedCopies(root, targets = ['.claude/skills', '.agents/skills']) {
+  const names = new Set([...bundledSkills(), ...Object.keys(RENAMED)]);
+  const managed = Object.keys(readManifest(root).files);
+  const out = [];
+  for (const target of targets) {
+    const dir = join(root, target);
+    if (!existsSync(dir)) continue;
+    for (const e of readdirSync(dir).sort()) {
+      const file = join(dir, e, 'SKILL.md');
+      if (!existsSync(file)) continue;
+      const legacy = e.startsWith(LEGACY_PREFIX);
+      if (!names.has(legacy ? e.slice(LEGACY_PREFIX.length) : e)) continue;
+      if (!legacy && !/hyvemind/i.test(readFileSync(file, 'utf8'))) continue;
+      const rel = join(target, e);
+      if (!managed.some((m) => m.startsWith(`${rel}/`))) out.push(rel);
+    }
+  }
+  return out;
 }
 
 // The header a deferred skill carries. Agents pick skills by description, so two
@@ -76,7 +119,7 @@ export function renderSkill(base, cfg) {
     const text = render(raw.toString('utf8'), base, cfg.skills.prefix, cfg.cli);
     // A deferred render is different content, so its hash differs: the manifest then
     // updates untouched copies on (un)deferring and keeps edited ones, as for any change.
-    const local = cfg.skills.defer?.[base];
+    const local = deferMap(cfg)[base];
     return { rel, content: local && rel === 'SKILL.md' ? withDeferHeader(text, local) : text };
   });
 }

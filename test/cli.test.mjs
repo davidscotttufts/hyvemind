@@ -154,3 +154,22 @@ test('evidence.status + train.via external: evidence names its source, --post de
   assert.notEqual(train.status, 0);
   assert.match(train.stderr, /merges go through the release queue/);
 });
+
+test('doctor: an old include list updates with a note, a stale cli pin and hand-copied skills are warned about', () => {
+  const dir = repo();
+  writeFileSync(join(dir, 'hyvemind.json'), JSON.stringify({ version: 1, cli: 'npx -y hyvemind@0.2.0', gates: [{ name: 't', run: 'true' }], skills: { include: ['evidence', 'skill-miner'], targets: ['.claude/skills'] } }));
+  const up = run(dir, 'update');
+  assert.equal(up.status, 0, up.stderr);
+  assert.match(up.stdout, /names the skill "evidence", which is now "evidence-rules"/);
+  mkdirSync(join(dir, '.claude/skills/bee-pr'), { recursive: true });
+  writeFileSync(join(dir, '.claude/skills/bee-pr/SKILL.md'), '---\nname: bee-pr\n---\n');
+  const doc = run(dir, 'doctor').stdout;
+  assert.match(doc, /! renamed skills — hyvemind\.json uses old names: evidence → evidence-rules, skill-miner → mine-skills/);
+  assert.match(doc, /! cli — npx -y hyvemind@0\.2\.0 is older than the hyvemind running this check/);
+  assert.match(doc, /! unmanaged skill copies — \.claude\/skills\/bee-pr /);
+
+  const bare = repo({ '.claude/skills/bee-evidence/SKILL.md': '---\nname: bee-evidence\n---\n' });
+  const none = run(bare, 'doctor');
+  assert.equal(none.status, 1, 'no config is still a failure');
+  assert.match(none.stdout, /! unmanaged skill copies — \.claude\/skills\/bee-evidence look like hyvemind skills but nothing manages them/);
+});
