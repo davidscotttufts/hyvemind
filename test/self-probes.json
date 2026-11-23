@@ -1048,5 +1048,45 @@
     "expectOutput": [
       "an UNSURE review files a decision"
     ]
+  },
+  {
+    "id": "worktree-live-process-survives",
+    "src": "src/worktrees.mjs",
+    "old": "if (row.processes.length) why.push(",
+    "new": "if (false) why.push(",
+    "test": "test/worktrees.test.mjs",
+    "expectOutput": [
+      "a worktree with a live process in it survives"
+    ]
+  },
+  {
+    "id": "worktree-unsaved-files-survive",
+    "src": "src/worktrees.mjs",
+    "old": "else if (row.dirty) why.push(",
+    "new": "else if (false) why.push(",
+    "test": "test/worktrees.test.mjs",
+    "expectOutput": [
+      "removable only when landed AND clean AND idle"
+    ]
+  },
+  {
+    "id": "worktree-squash-needs-exact-head",
+    "src": "src/worktrees.mjs",
+    "old": "if (w.branch && merged?.get(w.branch)?.has(w.head)) return",
+    "new": "if (w.branch && merged?.get(w.branch)) return",
+    "test": "test/worktrees.test.mjs",
+    "expectOutput": [
+      "a squash-merged branch is landed only when"
+    ]
+  },
+  {
+    "id": "worktree-prune-rechecks",
+    "src": "src/worktrees.mjs",
+    "old": "if (!again || again.state !== 'removable') {",
+    "new": "if (!again) {",
+    "test": "test/worktrees.test.mjs",
+    "expectOutput": [
+      "prune re-checks right before removing"
+    ]
   }
 ]

@@ -17,6 +17,8 @@ import { runGates } from '../src/gate.mjs';
 import { git } from '../src/git.mjs';
 import { bundledSkills, installAgentsMd, installSkills, renamedSkills, selectedSkills } from '../src/install.mjs';
 import { pin } from '../src/integrity.mjs';
+import { overview, renderOverview } from '../src/overview.mjs';
+import { QUIET_HOURS, inspectWorktrees, pruneWorktrees, renderWorktrees } from '../src/worktrees.mjs';
 import { friction, mine } from '../src/mine.mjs';
 import { runProbes } from '../src/probe.mjs';
 import { runPlan } from '../src/run.mjs';
@@ -42,6 +44,14 @@ Usage: hyvemind <command> [options]
             fleet forget <path>   --json
   pin       Record npm's dist.integrity for the version in "cli" (refuses a release
             younger than coolingOffDays)   --allow-fresh   --dry-run
+  status    Where things stand, on one screen: what is waiting on you, and for every
+            registered repository its install drift, worktrees and evidence
+            --prs   also list open pull requests and read commit-status evidence (network)
+  worktrees             This repository's worktrees and why each is kept or removable.
+                        Removable = landed in origin/<base>, clean, no live process in it,
+                        untouched by git for --quiet-hours (default 24)
+            --prune           list what would be removed; with --write, remove them
+            --base <branch>   --quiet-hours <n>   --json
   ask "<question>"      File a question for the human in the machine-wide decision queue
             --option <text> (repeat)  --recommend <option>  --blocks "<what waits on it>"
             --from <label>   who is asking (a session or agent name)
@@ -107,7 +117,7 @@ Global: --cwd <dir> (project root; default: the git toplevel of the current dire
 const { values: o, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, option: { type: 'string', multiple: true }, recommend: { type: 'string' }, blocks: { type: 'string' }, from: { type: 'string' }, note: { type: 'string' }, for: { type: 'string' }, here: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
+    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, prs: { type: 'boolean' }, prune: { type: 'boolean' }, 'quiet-hours': { type: 'string' }, option: { type: 'string', multiple: true }, recommend: { type: 'string' }, blocks: { type: 'string' }, from: { type: 'string' }, note: { type: 'string' }, for: { type: 'string' }, here: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
     only: { type: 'string' }, 'keep-going': { type: 'boolean' }, quiet: { type: 'boolean' },
     agent: { type: 'string' }, model: { type: 'string' }, trials: { type: 'string' }, keep: { type: 'boolean' },
     filter: { type: 'string' }, friction: { type: 'boolean' }, days: { type: 'string' }, all: { type: 'boolean' }, root: { type: 'string' }, json: { type: 'boolean' },
@@ -204,6 +214,31 @@ async function main() {
       const rows = fleet();
       if (o.json) return console.log(JSON.stringify(rows, null, 2));
       console.log(renderFleet(rows));
+      return;
+    }
+    case 'status': {
+      if (!home()) throw new Error('no hyvemind home in a test process; set HYVEMIND_HOME');
+      const view = overview({ prs: Boolean(o.prs) });
+      console.log(o.json ? JSON.stringify(view, null, 2) : renderOverview(view));
+      return;
+    }
+    case 'worktrees': {
+      const base = o.base ?? (() => { try { return readConfig(root).train?.base; } catch { return undefined; } })() ?? 'main';
+      const quietHours = o['quiet-hours'] === undefined ? QUIET_HOURS : Number(o['quiet-hours']);
+      if (!Number.isFinite(quietHours) || quietHours < 0) throw new Error('--quiet-hours must be a number ≥ 0');
+      const opts = { base, quietHours };
+      if (o.prune && o.write) {
+        const done = pruneWorktrees(root, opts);
+        if (o.json) return console.log(JSON.stringify(done, null, 2));
+        for (const d of done) console.log(d.removed ? `removed ${d.path} (${d.proof})` : `kept ${d.path}: ${d.why}`);
+        console.log(`${done.filter((d) => d.removed).length} removed. Branches are left alone.`);
+        return;
+      }
+      const rows = inspectWorktrees(root, opts);
+      const shown = o.prune ? rows.filter((r) => r.state === 'removable') : rows;
+      if (o.json) return console.log(JSON.stringify(shown, null, 2));
+      if (o.prune) console.log(shown.length ? `would remove:\n${shown.map((r) => `  ${r.path}  (${r.branch ?? 'detached'} · ${r.landed})`).join('\n')}\n\n(nothing removed; add --write)` : 'nothing is removable');
+      else console.log(renderWorktrees(rows, base));
       return;
     }
     case 'ask': {
