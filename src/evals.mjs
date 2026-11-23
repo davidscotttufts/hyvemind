@@ -136,6 +136,7 @@ export function scenarioRows(runs) {
     const skill = tally(runs.filter((r) => r.scenario === id && r.arm === 'skill'));
     const rb = bare.runs ? bare.pass / bare.runs : 0, rs = skill.runs ? skill.pass / skill.runs : 0;
     const flags = [];
+    if (rs < rb) flags.push('harmful');
     if (bare.runs && skill.runs && !bare.pass && !skill.pass) flags.push('no-signal');
     return { id, bare, skill, lift: r3(rs - rb), flags };
   });
