@@ -140,6 +140,24 @@ hyvemind mine [--all] [--json] [--yes] [--friction [--days <n>]]
 Every command takes `--cwd <dir>`; the default is the git root of the current directory.
 `hyvemind --help` lists every option.
 
+### fleet
+
+`hyvemind fleet` lists every repository on this machine that has hyvemind in it, and how
+far each has drifted: an old `cli` pin, skills installed by an older release, files that
+`update` would change, files edited locally, and skill folders copied in by hand.
+
+```
+hyvemind fleet --scan ~/dev     # find installs (3 levels deep) and register them
+hyvemind fleet                  # the table; --json for a script
+hyvemind fleet update           # what "update" would change in every repo
+hyvemind fleet update --write   # apply it; nothing is committed
+hyvemind fleet forget <path>
+```
+
+The registry is `~/.hyvemind/registry.json` (`HYVEMIND_HOME` moves it). `init` and
+`update` add the repo they run in. A repo is listed once, as its main worktree. A
+registry file that can't be read is an error, not an empty list.
+
 ### gate and evidence
 
 `gate` runs your gates and writes `.hyve/evidence/gate-<time>.json`: HEAD, the tree hash

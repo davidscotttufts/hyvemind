@@ -968,5 +968,35 @@
     "expectOutput": [
       "include/exclude select skills"
     ]
+  },
+  {
+    "id": "fleet-update-shows-by-default",
+    "src": "src/fleet.mjs",
+    "old": "const actions = [...installSkills(path, cfg, { dryRun: !write }), ...installAgentsMd(path, cfg, { dryRun: !write })];",
+    "new": "const actions = [...installSkills(path, cfg, { dryRun: false }), ...installAgentsMd(path, cfg, { dryRun: false })];",
+    "test": "test/fleet.test.mjs",
+    "expectOutput": [
+      "fleet update shows by default"
+    ]
+  },
+  {
+    "id": "registry-closed-schema",
+    "src": "src/fleet.mjs",
+    "old": "if (extra.length) return `unknown key(s): ${extra.join(', ')}`;",
+    "new": "",
+    "test": "test/fleet.test.mjs",
+    "expectOutput": [
+      "a malformed registry is an error"
+    ]
+  },
+  {
+    "id": "test-process-has-no-home",
+    "src": "src/home.mjs",
+    "old": "if (env.NODE_TEST_CONTEXT) return null;",
+    "new": "",
+    "test": "test/fleet.test.mjs",
+    "expectOutput": [
+      "a test process has no home"
+    ]
   }
 ]

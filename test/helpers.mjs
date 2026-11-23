@@ -3,6 +3,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+// Machine-wide state (the fleet registry, the decision queue) goes to a throwaway home,
+// never the developer's real ~/.hyvemind. Child processes inherit it.
+process.env.HYVEMIND_HOME = mkdtempSync(join(tmpdir(), 'hyve-home-'));
+
 export function sh(cwd, cmd, args) {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed: ${r.stderr}`);

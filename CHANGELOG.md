@@ -3,6 +3,11 @@
 ## Unreleased
 
 Added:
+- **`fleet`**: one table of every repository on the machine with hyvemind in it and how
+  each has drifted. `fleet --scan <dir>` finds installs, including skill folders copied in
+  by hand with no `hyvemind.json`. `fleet update` shows what `update` would change
+  everywhere, and writes only with `--write`. `init` and `update` register their repo in
+  `~/.hyvemind/registry.json`.
 - **`mine --friction`**: counts, over the last `--days` (default 30), the typed messages
   that were only "keep going" or "status?", the `AskUserQuestion` stops, and worktrees
   added against removed. It is the baseline for judging a change to how you work.

@@ -8,6 +8,8 @@ import { parseArgs } from 'node:util';
 import { CONFIG_FILE, pkgVersion, readConfig, resolveConfig, writeConfig } from '../src/config.mjs';
 import { detect } from '../src/detect.mjs';
 import { doctor } from '../src/doctor.mjs';
+import { fleet, fleetUpdate, forget, register, renderFleet, scan } from '../src/fleet.mjs';
+import { home } from '../src/home.mjs';
 import { affected, failingFilesFromVitest, observe, readTrustLedger, trust } from '../src/affected.mjs';
 import { checkMatrix, chooseAgent, historicalMedian, loggedIn, lintScenarios, matrixPreview, parseTargets, planEvals, preview, renderPreview, renderReport, runEvals, runMatrix, selectAgents } from '../src/evals.mjs';
 import { runGates } from '../src/gate.mjs';
@@ -32,6 +34,11 @@ Usage: hyvemind <command> [options]
   update    Re-install skills and the AGENTS.md block (keeps files you edited; --force overwrites)
   doctor    Check config, installed skills, collisions and the AGENTS.md block
   list      List bundled skills and whether this project installs them
+  fleet     Every repository on this machine with hyvemind in it, and how far each has
+            drifted (old pin, stale or edited skills, hand-copied skill folders)
+            --scan <dir>      find and register installs under <dir> (3 levels deep)
+            fleet update      show what "update" would change in every repo; --write applies it
+            fleet forget <path>   --json
   pin       Record npm's dist.integrity for the version in "cli" (refuses a release
             younger than coolingOffDays)   --allow-fresh   --dry-run
   gate      Run the configured gates; record a verdict bound to the working tree
@@ -88,7 +95,7 @@ Global: --cwd <dir> (project root; default: the git toplevel of the current dire
 const { values: o, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' },
+    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
     only: { type: 'string' }, 'keep-going': { type: 'boolean' }, quiet: { type: 'boolean' },
     agent: { type: 'string' }, model: { type: 'string' }, trials: { type: 'string' }, keep: { type: 'boolean' },
     filter: { type: 'string' }, friction: { type: 'boolean' }, days: { type: 'string' }, all: { type: 'boolean' }, root: { type: 'string' }, json: { type: 'boolean' },
@@ -143,6 +150,7 @@ async function main() {
       warnRenamed(cfg);
       const dry = Boolean(o['dry-run']);
       if (!dry && !existsSync(file)) writeConfig(root, raw);
+      if (!dry) register(root, 'init');
       console.log(`skills: ${summarize(installSkills(root, cfg, { dryRun: dry, force: o.force }))}`);
       console.log(`agents md: ${summarize(installAgentsMd(root, cfg, { dryRun: dry }))}`);
       console.log(dry ? '(dry run: nothing written)' : `\nnext: review ${CONFIG_FILE} gates, then run "${cfg.cli} doctor" and "${cfg.cli} gate"`);
@@ -154,6 +162,36 @@ async function main() {
       const dry = Boolean(o['dry-run']);
       console.log(`skills: ${summarize(installSkills(root, cfg, { dryRun: dry, force: o.force }))}`);
       console.log(`agents md: ${summarize(installAgentsMd(root, cfg, { dryRun: dry }))}`);
+      if (!dry) register(root, 'update');
+      return;
+    }
+    case 'fleet': {
+      if (!home()) throw new Error('no hyvemind home in a test process; set HYVEMIND_HOME');
+      const [sub, arg] = rest;
+      if (sub === 'forget') {
+        if (!arg) throw new Error('usage: hyvemind fleet forget <path>');
+        console.log(forget(resolve(arg)) ? `forgot ${resolve(arg)}` : `${resolve(arg)} is not registered`);
+        return;
+      }
+      if (sub === 'update') {
+        const rows = fleetUpdate({ write: Boolean(o.write) });
+        if (o.json) return console.log(JSON.stringify(rows, null, 2));
+        for (const r of rows) {
+          const what = r.skipped ? `skipped: ${r.skipped}` : Object.keys(r.counts).length ? Object.entries(r.counts).map(([k, v]) => `${v} ${k}`).join(', ') : 'nothing to change';
+          console.log(`${r.path}\n    ${what}`);
+        }
+        console.log(o.write ? '\nwritten. Nothing is committed: review and commit in each repo.' : '\n(nothing written; --write applies it)');
+        return;
+      }
+      if (sub) throw new Error(`unknown fleet subcommand "${sub}" (update | forget)`);
+      if (o.scan) {
+        const found = scan(resolve(o.scan));
+        for (const p of found) register(p, 'scan');
+        console.log(`scan of ${resolve(o.scan)}: ${found.length} repo(s) with hyvemind in them\n`);
+      }
+      const rows = fleet();
+      if (o.json) return console.log(JSON.stringify(rows, null, 2));
+      console.log(renderFleet(rows));
       return;
     }
     case 'doctor': {
