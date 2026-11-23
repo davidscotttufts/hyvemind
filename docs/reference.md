@@ -70,6 +70,36 @@ Or keep a bundled skill but let one of your own win where it applies:
 A deferred skill is still installed, with a note at the top to follow your skill instead
 where it applies. Deferring a skill that isn't bundled, or that you excluded, is an error.
 
+### Skills from another repository
+
+The skills that carry your real workflow are usually your own, and they tend to spread by
+copy-paste. A source installs them from the repository they live in, at a pinned commit,
+through the same manifest as the bundled skills:
+
+```json
+"skills": { "sources": [ { "from": "git@github.com:acme/app.git",
+                           "ref": "3f2c…40 hex characters…",
+                           "path": ".claude/skills",
+                           "include": ["release-manager", "code-review"] } ] }
+```
+
+- `ref` must be a full commit hash. A branch or tag can move, so it is refused.
+- `from` is anything `git fetch` accepts, using your own git credentials. The commit is
+  cached under `~/.hyvemind/cache` and read with `git show`. Nothing from the source is
+  checked out or run, and files are copied as they are.
+- `path` defaults to `.claude/skills`. A skill is a folder there with a `SKILL.md`.
+  `include` defaults to all of them. `prefix` adds a namespace to the installed names.
+- `update` follows the usual rules: untouched files move to the new pin, files you edited
+  are kept and reported. A sourced skill may not share a name with a bundled one.
+- `hyvemind sources` lists them. `--check` compares each pin with the source's current
+  head.
+
+When you improve a sourced skill where you use it, `hyvemind backport <skill>` offers the
+change back. It builds a branch that starts at the commit you installed from, containing
+only your edits, in a throwaway clone. By default it stops there and tells you where to
+look. `--push` pushes that branch to the source and opens a pull request with `gh`. It
+never pushes to the source's default branch.
+
 ### Upgrading
 
 Change the version in `cli` (or bump the dev dependency) and run `update`. It replaces the

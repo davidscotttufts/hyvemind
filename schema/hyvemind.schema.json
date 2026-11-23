@@ -78,6 +78,52 @@
             "type": "string",
             "pattern": "^[\\w.:/-]+$"
           }
+        },
+        "sources": {
+          "type": "array",
+          "description": "Skills installed from other repositories at a pinned commit",
+          "items": {
+            "type": "object",
+            "required": [
+              "from",
+              "ref"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "Git URL or path of the repository the skills live in"
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$",
+                "description": "Full commit hash to install from. A branch or tag is refused"
+              },
+              "path": {
+                "type": "string",
+                "default": ".claude/skills",
+                "description": "Folder in the source that holds the skill folders"
+              },
+              "include": {
+                "description": "Skill folder names, or \"all\"",
+                "oneOf": [
+                  {
+                    "const": "all"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "prefix": {
+                "type": "string",
+                "default": "",
+                "description": "Added to the installed skill names"
+              }
+            }
+          }
         }
       }
     },

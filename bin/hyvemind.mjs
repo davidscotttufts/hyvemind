@@ -17,6 +17,8 @@ import { runGates } from '../src/gate.mjs';
 import { git } from '../src/git.mjs';
 import { bundledSkills, installAgentsMd, installSkills, renamedSkills, selectedSkills } from '../src/install.mjs';
 import { pin } from '../src/integrity.mjs';
+import { prepareBackport, pushBackport } from '../src/backport.mjs';
+import { readSource, remoteHead } from '../src/sources.mjs';
 import { overview, renderOverview } from '../src/overview.mjs';
 import { QUIET_HOURS, inspectWorktrees, pruneWorktrees, renderWorktrees } from '../src/worktrees.mjs';
 import { friction, mine } from '../src/mine.mjs';
@@ -45,6 +47,11 @@ Usage: hyvemind <command> [options]
             fleet forget <path>   --json
   pin       Record npm's dist.integrity for the version in "cli" (refuses a release
             younger than coolingOffDays)   --allow-fresh   --dry-run
+  sources   The skill sources this project installs from (skills.sources), their pinned
+            commits and skills   --check  compare each pin with the source's current head
+  backport <skill>      Offer local edits to a sourced skill back to its repository: a
+                        branch that starts at the installed commit, with only your change
+            --push            push that branch and open a pull request (default: prepare only)
   status    Where things stand, on one screen: what is waiting on you, and for every
             registered repository its install drift, worktrees and evidence
             --prs   also list open pull requests and read commit-status evidence (network)
@@ -121,7 +128,7 @@ Global: --cwd <dir> (project root; default: the git toplevel of the current dire
 const { values: o, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, since: { type: 'string' }, 'fail-on': { type: 'string' }, prs: { type: 'boolean' }, prune: { type: 'boolean' }, 'quiet-hours': { type: 'string' }, option: { type: 'string', multiple: true }, recommend: { type: 'string' }, blocks: { type: 'string' }, from: { type: 'string' }, note: { type: 'string' }, for: { type: 'string' }, here: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
+    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, push: { type: 'boolean' }, check: { type: 'boolean' }, since: { type: 'string' }, 'fail-on': { type: 'string' }, prs: { type: 'boolean' }, prune: { type: 'boolean' }, 'quiet-hours': { type: 'string' }, option: { type: 'string', multiple: true }, recommend: { type: 'string' }, blocks: { type: 'string' }, from: { type: 'string' }, note: { type: 'string' }, for: { type: 'string' }, here: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
     only: { type: 'string' }, 'keep-going': { type: 'boolean' }, quiet: { type: 'boolean' },
     agent: { type: 'string' }, model: { type: 'string' }, trials: { type: 'string' }, keep: { type: 'boolean' },
     filter: { type: 'string' }, friction: { type: 'boolean' }, days: { type: 'string' }, all: { type: 'boolean' }, root: { type: 'string' }, json: { type: 'boolean' },
@@ -218,6 +225,36 @@ async function main() {
       const rows = fleet();
       if (o.json) return console.log(JSON.stringify(rows, null, 2));
       console.log(renderFleet(rows));
+      return;
+    }
+    case 'sources': {
+      const sources = readConfig(root).skills.sources ?? [];
+      if (!sources.length) { console.log('no skill sources configured (skills.sources in hyvemind.json)'); return; }
+      const rows = sources.map((s) => {
+        const names = readSource(s).map((x) => `${s.prefix ?? ''}${x.name}`);
+        const head = o.check ? remoteHead(s) : undefined;
+        return { from: s.from, ref: s.ref, skills: names, ...(o.check ? { head, behind: head === null ? null : head !== s.ref } : {}) };
+      });
+      if (o.json) return console.log(JSON.stringify(rows, null, 2));
+      for (const r of rows) {
+        console.log(`${r.from}\n  pinned ${r.ref.slice(0, 12)} · ${r.skills.length} skill(s): ${r.skills.join(', ')}`);
+        if (o.check) console.log(r.head === null ? '  could not read the source\'s current head' : r.behind ? `  the source's default branch is now ${r.head.slice(0, 12)}: set "ref" to it and run update to take its changes` : '  the pin is the source\'s current head');
+      }
+      return;
+    }
+    case 'backport': {
+      if (!rest[0]) throw new Error('usage: hyvemind backport <installed skill name> [--push]');
+      const p = prepareBackport(root, readConfig(root), rest[0]);
+      if (p.nothing) { console.log(`${rest[0]} has no local edits to offer back`); return; }
+      console.log(`${p.skill}: ${p.edits.length} file(s) differ from ${p.origin.from} at ${p.base.slice(0, 12)}\n${p.stat}`);
+      if (!o.push) {
+        console.log(`\nbranch ${p.branch} is prepared in ${p.dir} (nothing pushed).\nreview: git -C ${p.dir} show\nto push it and open a pull request against the source: hyvemind backport ${rest[0]} --push`);
+        return;
+      }
+      const out = pushBackport(p);
+      console.log(`pushed ${out.branch} to ${p.origin.from}`);
+      console.log(out.pr.opened ? `pull request: ${out.pr.url}` : `no pull request opened: ${out.pr.why}`);
+      if (!out.pr.opened) process.exitCode = 1;
       return;
     }
     case 'status': {

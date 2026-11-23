@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { join, relative, dirname } from 'node:path';
 import { PKG_ROOT, STATE_DIR, pkgVersion } from './config.mjs';
 import { LEGACY_PREFIX, RENAMED } from './aliases.mjs';
+import { sourceUnits } from './sources.mjs';
 
 export const BLOCK_BEGIN = '<!-- hyvemind:begin (managed by `hyvemind update`; edit hyvemind.json instead) -->';
 export const BLOCK_END = '<!-- hyvemind:end -->';
@@ -141,12 +142,19 @@ function writeManifest(root, m) {
 // - existed before hyvemind and not in the manifest   → keep, report "foreign"
 export function installSkills(root, cfg, { dryRun = false, force = false } = {}) {
   const manifest = readManifest(root);
-  const next = { version: pkgVersion(), files: {} };
+  const next = { version: pkgVersion(), files: {}, sources: {} };
   const actions = [];
-  for (const base of selectedSkills(cfg)) {
+  // Bundled skills and skills from other repositories go through the same rules.
+  const units = selectedSkills(cfg).map((base) => ({ dir: `${cfg.skills.prefix}${base}`, files: renderSkill(base, cfg) }));
+  for (const u of sourceUnits(cfg)) {
+    // Two skills in one folder would overwrite each other on every update.
+    if (units.some((x) => x.dir === u.dir)) throw new Error(`skill "${u.dir}" comes from two places (bundled or another source); exclude one, or give the source a prefix`);
+    units.push(u);
+  }
+  for (const unit of units) {
     for (const target of cfg.skills.targets) {
-      for (const f of renderSkill(base, cfg)) {
-        const rel = join(target, `${cfg.skills.prefix}${base}`, f.rel);
+      for (const f of unit.files) {
+        const rel = join(target, unit.dir, f.rel);
         const abs = join(root, rel);
         const want = sha(f.content);
         let action = 'write';
@@ -161,6 +169,9 @@ export function installSkills(root, cfg, { dryRun = false, force = false } = {})
         actions.push({ rel, action });
         const keep = action === 'modified' || action === 'foreign';
         next.files[rel] = keep ? (manifest.files[rel] ?? null) : want;
+        // Where a file came from. A file the project edited keeps the commit its edit
+        // started from, so the edit can be offered back against exactly that base.
+        if (f.origin) next.sources[rel] = keep ? (manifest.sources?.[rel] ?? f.origin) : f.origin;
         if (!dryRun && (action === 'write' || action === 'update')) {
           mkdirSync(dirname(abs), { recursive: true });
           writeFileSync(abs, f.content);
@@ -183,7 +194,8 @@ export function installSkills(root, cfg, { dryRun = false, force = false } = {})
     }
   }
   if (!dryRun) {
-    for (const [k, v] of Object.entries(next.files)) if (v === null) delete next.files[k];
+    for (const [k, v] of Object.entries(next.files)) if (v === null) { delete next.files[k]; delete next.sources[k]; }
+    if (!Object.keys(next.sources).length) delete next.sources;
     writeManifest(root, next);
     ensureStateIgnored(root);
   }
