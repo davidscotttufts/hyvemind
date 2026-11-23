@@ -1088,5 +1088,65 @@
     "expectOutput": [
       "prune re-checks right before removing"
     ]
+  },
+  {
+    "id": "run-red-baseline",
+    "src": "src/run.mjs",
+    "old": "if (entry.baselineExit === 0) {",
+    "new": "if (false) {",
+    "test": "test/run.test.mjs",
+    "expectOutput": [
+      "an exit check that passes before any work stops the task"
+    ]
+  },
+  {
+    "id": "run-write-boundary",
+    "src": "src/run.mjs",
+    "old": "if (touched.length) {",
+    "new": "if (false) {",
+    "test": "test/run.test.mjs",
+    "expectOutput": [
+      "an implementer that edits a protected file fails the attempt"
+    ]
+  },
+  {
+    "id": "run-go-must-agree-with-findings",
+    "src": "src/run.mjs",
+    "old": "if (unmet.length) return `GO contradicts its own findings",
+    "new": "if (false) return `GO contradicts its own findings",
+    "test": "test/run.test.mjs",
+    "expectOutput": [
+      "a GO must agree with its own findings"
+    ]
+  },
+  {
+    "id": "run-reviewer-may-not-edit",
+    "src": "src/run.mjs",
+    "old": "const refused = workingTree(dir) !== treeReviewed ? 'the reviewer changed files in the worktree' : inconsistent(verdict?.[1], entry.findings);",
+    "new": "const refused = inconsistent(verdict?.[1], entry.findings);",
+    "test": "test/run.test.mjs",
+    "expectOutput": [
+      "a GO must agree with its own findings"
+    ]
+  },
+  {
+    "id": "protect-approval-is-per-fingerprint",
+    "src": "src/protect.mjs",
+    "old": "d.ref.repo === repo && d.ref.fingerprint === fp && d.state !== 'withdrawn'",
+    "new": "d.ref.repo === repo && d.state !== 'withdrawn'",
+    "test": "test/protect.test.mjs",
+    "expectOutput": [
+      "green is not proof until the human approves exactly these changes"
+    ]
+  },
+  {
+    "id": "protect-require-blocks-green",
+    "src": "src/status.mjs",
+    "old": "return { ...base, ok: false, waiting: true,",
+    "new": "return { ...base, ok: true, waiting: true,",
+    "test": "test/protect.test.mjs",
+    "expectOutput": [
+      "green is not proof until the human approves exactly these changes"
+    ]
   }
 ]

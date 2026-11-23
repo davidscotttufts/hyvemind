@@ -47,6 +47,11 @@ export const DEFAULTS = {
   evidence: { status: null },
   train: { via: 'hyvemind', message: null },
   // ── end external evidence ──
+  // protect.paths: globs for what decides whether work passed (gate scripts, CI config,
+  // tests). Empty: off. hyvemind.json is protected whenever anything is. require
+  // "decision": evidence is refused until the human approves that exact set of changes.
+  // base: the ref to compare with; default origin/<train.base or main>.
+  protect: { paths: [], require: null, base: null },
   // notify.command: run (in a shell) when a decision is filed, with HYVEMIND_DECISION_ID,
   // _QUESTION, _REPO, _BLOCKS and _RECOMMEND in its environment. null: a macOS notification.
   notify: { command: null },
@@ -134,6 +139,9 @@ export function validate(cfg) {
   need(['hyvemind', 'external'].includes(cfg.train?.via), 'train.via must be "hyvemind" or "external"');
   need(cfg.train?.message === null || typeof cfg.train?.message === 'string', 'train.message must be a string');
   // ── end external evidence ──
+  need(Array.isArray(cfg.protect?.paths) && cfg.protect.paths.every((x) => typeof x === 'string' && x && !x.startsWith('/')), 'protect.paths must be a list of repo-relative globs');
+  need([null, 'decision'].includes(cfg.protect?.require), 'protect.require must be null or "decision"');
+  need(cfg.protect?.base === null || typeof cfg.protect?.base === 'string', 'protect.base must be null or a git ref');
   need(cfg.notify?.command === null || (typeof cfg.notify?.command === 'string' && cfg.notify.command.trim() !== ''), 'notify.command must be null or a shell command');
   for (const [i, g] of (cfg.gates ?? []).entries()) {
     need(typeof g?.name === 'string' && g.name, `gates[${i}].name is required`);

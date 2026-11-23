@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
 import { decide, list as listDecisions } from '../src/decisions.mjs';
 import { git } from '../src/git.mjs';
-import { order, parsePlan, runPlan } from '../src/run.mjs';
+import { inconsistent, order, parsePlan, reviewFindings, runPlan } from '../src/run.mjs';
 import { repo, write } from './helpers.mjs';
 
 const PLAN = `# Plan
@@ -26,7 +26,7 @@ T2 — Add a farewell
 const IMPLEMENT = `const p=process.argv[1];const f=p.match(/Files: (\\S+)/)[1];require('fs').writeFileSync(f,'hello\\n')`;
 const LAZY = `/* does nothing */`;
 const FLAKY_ONCE = `const fs=require('fs');const p=process.argv[1];const f=p.match(/Files: (\\S+)/)[1];if(p.includes('previous attempt failed'))fs.writeFileSync(f,'hello\\n');else fs.writeFileSync(f,'oops\\n')`;
-const GO = `console.log('looks fine\\nVERDICT: GO')`;
+const GO = `console.log('REQ: the file is written | met: yes | evidence: the diff adds it\\nVERDICT: GO')`;
 const NOGO = `console.log('VERDICT: NO-GO — greeting is rude')`;
 
 function setup(implementer, reviewer = GO) {
@@ -146,4 +146,66 @@ test('with no decision queue, UNSURE blocks like any verdict that is not GO', ()
   const { report } = runPlan(root, cfg, 'plan.md', { dir, decisions: null });
   assert.equal(report.tasks[0].status, 'review-blocked');
   assert.match(report.tasks[0].review, /^UNSURE/);
+});
+
+test('an exit check that passes before any work stops the task: no agent runs, nothing is committed', () => {
+  const root = repo({ '.gitignore': '.hyve/\n', 'plan.md': 'T1 — Add a greeting\n  Files: greet.txt\n  Exit check: `test -f README.md`\n' });
+  const dir = join(mkdtempSync(join(tmpdir(), 'hyve-run-')), 'wt');
+  const MARK = `require('fs').writeFileSync('agent-ran.txt','x')`;
+  const cfg = resolveConfig({ version: 1, run: { agent: ['node', '-e', MARK, '{prompt}'], reviewer: ['node', '-e', GO, '{prompt}'] } });
+  const { report } = runPlan(root, cfg, 'plan.md', { dir, decisions: null });
+  assert.equal(report.tasks[0].status, 'check-already-passes');
+  assert.equal(report.tasks[0].baselineExit, 0);
+  assert.ok(!existsSync(join(dir, 'agent-ran.txt')), 'the agent was never started');
+  assert.equal(git(dir, ['log', '--format=%s', '-1']).out, 'init');
+});
+
+test('an implementer that edits a protected file fails the attempt, even though the exit check would pass', () => {
+  const plan = 'T1 — Make the total right\n  Files: src/total.js\n  Exit check: `node test/total.test.js`\n';
+  const files = { '.gitignore': '.hyve/\n', 'plan.md': plan, 'src/total.js': 'module.exports = () => 1;\n', 'test/total.test.js': "if (require('../src/total.js')() !== 2) process.exit(1);\n" };
+  // Cheats on the first try by rewriting the test; fixes the code once told off.
+  const CHEAT_THEN_FIX = `const fs=require('fs');const p=process.argv[1];if(p.includes('You changed protected files'))fs.writeFileSync('src/total.js','module.exports = () => 2;\\n');else fs.writeFileSync('test/total.test.js','process.exit(0)\\n')`;
+  const mk = (agent, protect) => ({ root: repo(files), dir: join(mkdtempSync(join(tmpdir(), 'hyve-run-')), 'wt'), cfg: resolveConfig({ version: 1, protect, run: { agent: ['node', '-e', agent, '{prompt}'], reviewer: ['node', '-e', GO, '{prompt}'], maxAttempts: 2 } }) });
+
+  const a = mk(CHEAT_THEN_FIX, { paths: ['test/**'] });
+  const { report } = runPlan(a.root, a.cfg, 'plan.md', { dir: a.dir, decisions: null });
+  assert.equal(report.tasks[0].status, 'done');
+  assert.deepEqual(report.tasks[0].attempts[0].protectedTouched, [{ path: 'test/total.test.js', change: 'modified' }]);
+  assert.equal(report.tasks[0].attempts[0].checkExit, -1, 'the cheated attempt was never scored by the check it rewrote');
+  assert.match(readFileSync(join(a.dir, 'test/total.test.js'), 'utf8'), /!== 2/, 'the test is back as it was');
+
+  const ALWAYS_CHEAT = `require('fs').writeFileSync('test/total.test.js','process.exit(0)\\n')`;
+  const b = mk(ALWAYS_CHEAT, { paths: ['test/**'] });
+  assert.equal(runPlan(b.root, b.cfg, 'plan.md', { dir: b.dir, decisions: null }).report.tasks[0].status, 'touched-protected');
+  assert.equal(git(b.dir, ['log', '--format=%s', '-1']).out, 'init');
+
+  // Without protect the same cheat is accepted: this is the hole the setting closes.
+  const c = mk(ALWAYS_CHEAT, { paths: [] });
+  assert.equal(runPlan(c.root, c.cfg, 'plan.md', { dir: c.dir, decisions: null }).report.tasks[0].status, 'done');
+
+  // A task that declares a test file in its Files may write it.
+  const d = mk(`const fs=require('fs');fs.writeFileSync('src/total.js','module.exports = () => 2;\\n');fs.appendFileSync('test/total.test.js','// covers the new total\\n')`, { paths: ['test/**'] });
+  write(d.root, { 'plan.md': plan.replace('Files: src/total.js', 'Files: src/total.js, test/total.test.js') });
+  assert.equal(runPlan(d.root, d.cfg, 'plan.md', { dir: d.dir, decisions: null }).report.tasks[0].status, 'done');
+});
+
+test('a GO must agree with its own findings, and a reviewer may not change files', () => {
+  assert.deepEqual(reviewFindings('REQ: adds greet | met: yes | evidence: greet.txt:1\n- REQ: handles empty | met: no | evidence: no test'), [
+    { requirement: 'adds greet', met: true, evidence: 'greet.txt:1' }, { requirement: 'handles empty', met: false, evidence: 'no test' }]);
+  assert.match(inconsistent('GO', []), /no REQ lines/);
+  assert.match(inconsistent('GO', [{ requirement: 'x', met: false, evidence: 'e' }]), /contradicts its own findings: not met: x/);
+  assert.match(inconsistent('GO', [{ requirement: 'x', met: true, evidence: '' }]), /without evidence for: x/);
+  assert.equal(inconsistent('GO', [{ requirement: 'x', met: true, evidence: 'a.js:3' }]), null);
+  assert.equal(inconsistent('NO-GO', []), null, 'only an approval has to show its work');
+
+  const run = (reviewer) => { const { root, dir, cfg } = setup(IMPLEMENT, reviewer); return { dir, task: runPlan(root, cfg, 'plan.md', { dir, decisions: null }).report.tasks[0] }; };
+  const bare = run(`console.log('looks fine\\nVERDICT: GO')`);
+  assert.equal(bare.task.status, 'review-blocked');
+  assert.match(bare.task.review, /refused: GO with no REQ lines/);
+  const selfContradicting = run(`console.log('REQ: says hello | met: no | evidence: file says hi\\nVERDICT: GO')`);
+  assert.match(selfContradicting.task.review, /refused: GO contradicts its own findings/);
+  const meddling = run(`require('fs').writeFileSync('greet.txt','hello, fixed it for you\\n');console.log('REQ: says hello | met: yes | evidence: greet.txt\\nVERDICT: GO')`);
+  assert.equal(meddling.task.status, 'review-blocked');
+  assert.match(meddling.task.review, /refused: the reviewer changed files/);
+  assert.equal(git(meddling.dir, ['log', '--format=%s', '-1']).out, 'init', 'nothing a reviewer rewrote is committed');
 });

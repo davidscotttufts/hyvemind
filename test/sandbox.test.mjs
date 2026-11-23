@@ -45,7 +45,7 @@ test('containerArgv: no network, mounted worktree, dropped caps, only allowliste
 
 const PLAN = 'T1 — Create the greeting\n  Files: greet.txt\n  Exit check: `grep -q hello greet.txt && test -z "$HYVE_TEST_SECRET"`\n';
 const IMPLEMENT = "const p=process.argv[1];const f=p.match(/Files: (\\S+)/)[1];require('fs').writeFileSync(f,'hello\\n')";
-const GO = "console.log('VERDICT: GO')";
+const GO = "console.log('REQ: the task is done | met: yes | evidence: the diff\\nVERDICT: GO')";
 
 test('sandboxed run: the exit check runs in the container (no network, no leaked env), after setup with network', () => {
   const root = repo({ '.gitignore': '.hyve/\nfake-runtime\nruntime.log\n', 'plan.md': PLAN });
@@ -58,9 +58,10 @@ test('sandboxed run: the exit check runs in the container (no network, no leaked
   const { report } = runPlan(root, cfg, 'plan.md', { dir });
   assert.equal(report.tasks[0].status, 'done', JSON.stringify(report.tasks[0]));
   const calls = readFileSync(join(root, 'runtime.log'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.equal(calls.length, 2, 'setup, then the check');
-  assert.equal(calls[0][calls[0].indexOf('--network') + 1], 'bridge', 'setup may use the network');
-  assert.equal(calls[1][calls[1].indexOf('--network') + 1], 'none', 'the check may not');
+  assert.equal(calls.length, 4, 'setup + the baseline check (must be red before any work), then setup + the real check');
+  for (const i of [0, 2]) assert.equal(calls[i][calls[i].indexOf('--network') + 1], 'bridge', 'setup may use the network');
+  for (const i of [1, 3]) assert.equal(calls[i][calls[i].indexOf('--network') + 1], 'none', 'a check may not');
+  assert.equal(report.tasks[0].baselineExit !== 0, true, 'the baseline ran in the container and was red');
   assert.match(calls[1].at(-1), /grep -q hello greet\.txt/);
   assert.equal(report.sandbox.checkNetwork, 'none');
   assert.equal(git(dir, ['log', '--format=%s', '-1']).out, 'T1: Create the greeting');

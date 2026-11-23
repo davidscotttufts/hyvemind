@@ -26,7 +26,7 @@ export function openPrs(root, { gh = 'gh' } = {}) {
   } catch { return null; }
 }
 
-export function overview({ dir = home(), prs = false, cwds = processCwds(), base = 'main', evidence = checkEvidence, pullRequests = openPrs } = {}) {
+export function overview({ dir = home(), prs = false, cwds = processCwds(), base = 'main', evidence = (path, cfg) => checkEvidence(path, cfg, { file: false }), pullRequests = openPrs } = {}) {
   const pending = listDecisions({}, { dir });
   const repos = Object.keys(readRegistry(dir).repos).sort().map((path) => {
     const fleet = inspect(path);

@@ -11,6 +11,7 @@
 import { spawnSync } from 'node:child_process';
 import { evidenceFor } from './gate.mjs';
 import { git, head, workingTree } from './git.mjs';
+import { approval } from './protect.mjs';
 
 export const CONTEXT = 'hyvemind/gate';
 
@@ -73,8 +74,23 @@ export function externalEvidence(root, cfg, { gh = 'gh' } = {}) {
   return { ...base, ok: true, sha, tree, slug, status };
 }
 
-// One answer to "is the current tree done?", naming where the proof came from.
+// One answer to "is the current tree done?", naming where the proof came from. A green
+// result is then held to the protect rules: a gate that was edited on the way to green
+// is reported, and with protect.require "decision" it is not proof until approved.
 export function checkEvidence(root, cfg, opts = {}) {
+  const e = rawEvidence(root, cfg, opts);
+  if (!e.ok || !cfg) return e;
+  const a = approval(root, cfg, { ...(opts.decisions !== undefined ? { decisions: opts.decisions } : {}), file: opts.file !== false, notifier: opts.notifier });
+  if (a.state === 'none') return a.note ? { ...e, message: `${e.message}\n! protected paths were not compared: ${a.note}` } : e;
+  const base = { ...e, protect: a };
+  if (a.state === 'noted') return { ...base, message: `${e.message}\n! gate changed: ${a.note}` };
+  if (a.state === 'approved') return { ...base, message: `${e.message}\n  gate change approved by the human (${a.id}): ${a.note}` };
+  if (a.state === 'rejected') return { ...base, ok: false, message: `not proven · the human rejected these gate changes (${a.id}): ${a.note}` };
+  if (a.state === 'unavailable') return { ...base, ok: false, message: `not proven · ${a.note} · protect.require is "decision" but there is no decision queue here` };
+  return { ...base, ok: false, waiting: true, message: `not proven yet · the gate is green, but ${a.note}. That needs the human's approval${a.id ? `: hyvemind decide ${a.id} approve|reject${a.filed ? ' (question filed)' : ''}` : ' (run "hyvemind evidence" to file the question)'}` };
+}
+
+function rawEvidence(root, cfg, opts = {}) {
   if (cfg?.evidence?.status) {
     const e = externalEvidence(root, cfg, opts);
     const s = e.status;
@@ -108,6 +124,12 @@ export function postStatus(root, { dryRun = false, gh = 'gh', cfg = null } = {})
   const commitTree = git(root, ['rev-parse', 'HEAD^{tree}']).out;
   const s = statusFor(evidenceFor(root), commitTree);
   if (s.refuse) return { posted: false, reason: s.refuse };
+  // A success status is a claim of done: it is held to the same protect rules as `evidence`.
+  if (s.state === 'success' && cfg) {
+    const a = approval(root, cfg, { file: !dryRun });
+    if (['pending', 'rejected', 'unavailable'].includes(a.state)) return { posted: false, reason: `${a.note}; ${a.state === 'pending' ? `waiting for the human's approval${a.id ? ` (hyvemind decide ${a.id} approve|reject)` : ''}` : a.state === 'rejected' ? `rejected by the human (${a.id})` : 'protect.require is "decision" but there is no decision queue here'}`, waiting: a.state === 'pending' };
+    if (a.state === 'noted' || a.state === 'approved') s.description = `${s.description} · gate changed${a.state === 'approved' ? ' (approved)' : ''}`;
+  }
   const slug = repoSlug(root);
   const args = ['api', '-X', 'POST', `repos/${slug}/statuses/${sha}`,
     '-f', `state=${s.state}`, '-f', `context=${CONTEXT}`, '-f', `description=${s.description.slice(0, 140)}`];
