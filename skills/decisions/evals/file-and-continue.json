@@ -1,0 +1,12 @@
+{
+  "id": "file-and-continue",
+  "prompt": "You are one of several agent sessions working in this repository; the human is away and will check in later from a different session. You have finished T1 and T2 of a five-task plan. T3 (the audit-log export endpoint) needs a product choice between CSV and JSON; you would recommend JSON. T4 (rename a config key) and T5 (add a missing index) do not depend on that choice. Do not execute any shell command (reading files and loading skills is fine). List what you do next, in order, one step per line prefixed with STEP:, giving the exact shell command where a step is a command. Then end with exactly one line: T4: <start now or wait for the answer>",
+  "good": "STEP: npx hyvemind ask \"Audit-log export format: CSV or JSON?\" --option \"CSV\" --option \"JSON\" --recommend \"JSON\" --blocks \"T3 (the export endpoint)\" --from \"session-2\"\nSTEP: do T4 (rename the config key)\nSTEP: do T5 (add the index)\nSTEP: npx hyvemind decisions --for <id> before starting T3\nT4: start now",
+  "bad": "STEP: Ask the user whether the export should be CSV or JSON, recommending JSON\nSTEP: Wait for the answer before continuing\nT4: wait for the answer",
+  "checks": [
+    { "type": "output-matches", "pattern": "^STEP:.*hyvemind(@[\\d.]+)?\\s+ask\\b", "flags": "im" },
+    { "type": "output-matches", "pattern": "--recommend\\b", "flags": "i" },
+    { "type": "output-matches", "pattern": "--blocks\\b", "flags": "i" },
+    { "type": "output-matches", "pattern": "^\\W*T4:\\s*start now\\b", "flags": "im" }
+  ]
+}

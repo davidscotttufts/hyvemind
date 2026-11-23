@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveConfig } from '../src/config.mjs';
+import { decide, list as listDecisions } from '../src/decisions.mjs';
 import { git } from '../src/git.mjs';
 import { order, parsePlan, runPlan } from '../src/run.mjs';
 import { repo, write } from './helpers.mjs';
@@ -86,4 +87,63 @@ test('re-running resumes: committed tasks are skipped', () => {
   runPlan(root, cfg, 'plan.md', { dir, only: ['T1'] });
   const { report } = runPlan(root, cfg, 'plan.md', { dir });
   assert.deepEqual(report.tasks.map((t) => t.status), ['already-done', 'done']);
+});
+
+const UNSURE = `console.log('VERDICT: UNSURE — proof that greet.txt is read by the app; the diff only creates it')`;
+const decisionsHome = () => mkdtempSync(join(tmpdir(), 'hyve-run-dec-'));
+const quiet = { notifier: () => {} };
+
+test('an UNSURE review files a decision and stops as waiting; accepting it commits exactly that change', () => {
+  const { root, dir, cfg } = setup(IMPLEMENT, UNSURE);
+  const decisions = decisionsHome();
+  const first = runPlan(root, cfg, 'plan.md', { dir, decisions, ...quiet }).report;
+  assert.deepEqual(first.tasks.map((t) => t.status), ['waiting']);
+  const [d] = listDecisions({}, { dir: decisions });
+  assert.equal(first.tasks[0].decision, d.id);
+  assert.match(d.question, /T1 \(Create the greeting\): the reviewer could not decide\. It needs: proof that greet\.txt is read/);
+  assert.deepEqual(d.options, ['accept', 'reject']);
+  assert.equal(git(dir, ['log', '--format=%s', '-1']).out, 'init', 'nothing is committed while it waits');
+  assert.ok(existsSync(join(dir, 'greet.txt')), 'the change is kept for the human to look at');
+
+  const again = runPlan(root, cfg, 'plan.md', { dir, decisions, ...quiet }).report;
+  assert.deepEqual(again.tasks.map((t) => t.status), ['waiting'], 'still pending: no agent runs, no second question');
+  assert.equal(listDecisions({ state: 'all' }, { dir: decisions }).length, 1);
+
+  decide(d.id, 'accept', { note: 'wired up in T2' }, { dir: decisions });
+  // The reviewer would still say UNSURE; the accepted task must not be reviewed again.
+  const done = runPlan(root, cfg, 'plan.md', { dir, decisions, only: ['T1'], ...quiet }).report;
+  assert.deepEqual(done.tasks.map((t) => t.status), ['done']);
+  assert.match(done.tasks[0].review, /UNSURE, accepted by the human \(d-\d{8}-[0-9a-f]{4}: wired up in T2\)/);
+  assert.match(git(dir, ['log', '--format=%B', '-1']).out, /^T1: Create the greeting/);
+});
+
+test('an accepted decision covers only the tree the reviewer saw; a rejected one is retried with the reason', () => {
+  const a = setup(IMPLEMENT, UNSURE);
+  const decisions = decisionsHome();
+  runPlan(a.root, a.cfg, 'plan.md', { dir: a.dir, decisions, ...quiet });
+  const [d] = listDecisions({}, { dir: decisions });
+  decide(d.id, 'accept', {}, { dir: decisions });
+  write(a.dir, { 'greet.txt': 'hello\nand something nobody reviewed\n' });
+  const changed = runPlan(a.root, a.cfg, 'plan.md', { dir: a.dir, decisions, ...quiet }).report;
+  assert.equal(changed.tasks[0].status, 'waiting', 'a different tree goes through review again, and is parked again');
+  assert.equal(listDecisions({ state: 'all' }, { dir: decisions }).length, 2);
+  assert.equal(git(a.dir, ['log', '--format=%s', '-1']).out, 'init');
+
+  // Reject: the next attempt starts clean and is told why.
+  const SEES_REASON = `const fs=require('fs');const p=process.argv[1];fs.writeFileSync('greet.txt', p.includes('the human rejected it: wrong file') ? 'hello told\\n' : 'hello\\n')`;
+  const b = setup(SEES_REASON, UNSURE);
+  const home2 = decisionsHome();
+  runPlan(b.root, b.cfg, 'plan.md', { dir: b.dir, decisions: home2, ...quiet });
+  decide(listDecisions({}, { dir: home2 })[0].id, 'reject', { note: 'wrong file' }, { dir: home2 });
+  const cfgGo = resolveConfig({ version: 1, run: { agent: b.cfg.run.agent, reviewer: ['node', '-e', GO, '{prompt}'], maxAttempts: 2 } });
+  const retried = runPlan(b.root, cfgGo, 'plan.md', { dir: b.dir, decisions: home2, only: ['T1'], ...quiet }).report;
+  assert.equal(retried.tasks[0].status, 'done');
+  assert.equal(readFileSync(join(b.dir, 'greet.txt'), 'utf8'), 'hello told\n', 'the retry saw the human\'s reason');
+});
+
+test('with no decision queue, UNSURE blocks like any verdict that is not GO', () => {
+  const { root, dir, cfg } = setup(IMPLEMENT, UNSURE);
+  const { report } = runPlan(root, cfg, 'plan.md', { dir, decisions: null });
+  assert.equal(report.tasks[0].status, 'review-blocked');
+  assert.match(report.tasks[0].review, /^UNSURE/);
 });

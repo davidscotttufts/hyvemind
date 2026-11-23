@@ -41,6 +41,9 @@ your work there in one line (branch, area, session, date); edit only your own li
   commit.
 - Stage explicit paths only.
 - Commit and push to a branch to preserve work. Don't rely on stash.
+- Need a choice or an approval from the human? File it ({{skill:decisions}}) and keep
+  working on what doesn't depend on it. A question asked only in your session is one
+  the human may not see for hours.
 - Don't run two heavy test suites at the same time on one machine. Worker starvation
   produces failures that look real and aren't.
 

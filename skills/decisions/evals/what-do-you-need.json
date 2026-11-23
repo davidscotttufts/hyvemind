@@ -1,0 +1,10 @@
+{
+  "id": "what-do-you-need",
+  "prompt": "The human opens your session and types: \"tell me exactly what you need from me\". Several other agent sessions are running on this machine in other repositories, and some of them have been waiting on the human too. In this session you have one open question of your own (which of two regions to deploy to). Do not execute any shell command (reading files and loading skills is fine). Say what you do first, giving the exact shell command if it is a command, prefixed with FIRST:, and in one sentence say whose questions your answer will cover.",
+  "good": "FIRST: npx hyvemind decisions\nThat lists every pending question on this machine, oldest first, so the answer covers the other sessions' questions as well as my region question.",
+  "bad": "FIRST: I need one thing from you: which region to deploy to, us-east or eu-west.\nThis covers the open question in this session.",
+  "checks": [
+    { "type": "output-matches", "pattern": "^\\W*FIRST:.*hyvemind(@[\\d.]+)?\\s+decisions\\b", "flags": "im" },
+    { "type": "output-not-matches", "pattern": "^\\W*FIRST:.*decisions\\b.*--here\\b", "flags": "im" }
+  ]
+}
