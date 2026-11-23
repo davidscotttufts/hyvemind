@@ -1033,7 +1033,7 @@
     "id": "run-accept-covers-only-the-reviewed-tree",
     "src": "src/run.mjs",
     "old": "if (workingTree(dir) === parked.ref.tree) accepted = parked;",
-    "new": "accepted = parked;",
+    "new": "if (true) accepted = parked;",
     "test": "test/run.test.mjs",
     "expectOutput": [
       "an accepted decision covers only the tree the reviewer saw"
