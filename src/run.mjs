@@ -16,12 +16,12 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { STATE_DIR } from './config.mjs';
-import { argv } from './evals.mjs';
 import { ask, list as listDecisions } from './decisions.mjs';
 import { git, workingTree } from './git.mjs';
 import { home } from './home.mjs';
 import { matcher, snapshot, violations } from './protect.mjs';
 import { runInSandbox, SANDBOXED_ROLES, sandboxConfig } from './sandbox.mjs';
+import { parseAgentOutput, sumUsage } from './usage.mjs';
 
 export function parsePlan(text) {
   const tasks = [];
@@ -69,10 +69,43 @@ const sh = (cmd, cwd, timeoutSec) => {
   return { code: r.status ?? -1, out: `${r.stdout ?? ''}\n${r.stderr ?? ''}`.trim() };
 };
 
-function agentRun(command, prompt, cwd, timeoutSec) {
-  const [cmd, ...args] = argv(command, { prompt, workdir: cwd });
+function agentRun(command, prompt, cwd, timeoutSec, role = {}) {
+  const [cmd, ...args] = roleArgv(command, { prompt, workdir: cwd, model: role.model, effort: role.effort });
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout: timeoutSec * 1000, maxBuffer: 64 * 1024 * 1024 });
-  return { code: r.status ?? -1, out: `${r.stdout ?? ''}\n${r.stderr ?? ''}`.trim(), error: r.error?.message };
+  // An agent that prints a JSON result (Claude Code) gives its text and what the call cost.
+  const { text, usage } = parseAgentOutput(r.stdout ?? '');
+  return { code: r.status ?? -1, out: `${text}\n${r.stderr ?? ''}`.trim(), error: r.error?.message, usage };
+}
+
+// {prompt} {workdir} {model} {effort} in a role's argv.
+function roleArgv(command, vars) {
+  return command.map((t) => t.replace(/\{(prompt|workdir|model|effort)\}/g, (_, k) => {
+    if (vars[k] == null) throw new Error(`the agent command uses {${k}} but run.roles gives no ${k}`);
+    return vars[k];
+  }));
+}
+
+// The built-in Claude Code roles print a JSON result, and take a model and an effort.
+// A custom command is used as written: to give it a model, put {model} in its argv.
+export const ROLE_NAMES = ['implementer', 'reviewer'];
+export function resolveRoles(cfg, builtin) {
+  const roles = cfg.run?.roles ?? {};
+  const unknown = Object.keys(roles).filter((k) => !ROLE_NAMES.includes(k));
+  if (unknown.length) throw new Error(`run.roles has unknown role(s): ${unknown.join(', ')} (roles: ${ROLE_NAMES.join(', ')})`);
+  const out = {};
+  for (const [name, key] of [['implementer', 'agent'], ['reviewer', 'reviewer']]) {
+    const role = roles[name] ?? {};
+    for (const k of ['model', 'effort']) if (role[k] !== undefined && (typeof role[k] !== 'string' || !role[k].trim())) throw new Error(`run.roles.${name}.${k} must be a non-empty string`);
+    const custom = cfg.run?.[key];
+    if (custom) {
+      // A model that is set but never passed would be recorded and not used.
+      for (const k of ['model', 'effort']) if (role[k] && !custom.some((t) => t.includes(`{${k}}`))) throw new Error(`run.roles.${name}.${k} is set, but run.${key} has no {${k}} in its argv to pass it with`);
+      out[key] = { command: custom, role };
+    } else {
+      out[key] = { command: [...builtin[key], '--output-format', 'json', ...(role.model ? ['--model', '{model}'] : []), ...(role.effort ? ['--effort', '{effort}'] : [])], role };
+    }
+  }
+  return out;
 }
 
 export function implementPrompt(task, spec, failure) {
@@ -130,9 +163,11 @@ export function runPlan(root, cfg, planFile, opts = {}) {
   const sb = sandboxConfig(cfg, opts.sandbox);
   // Sandboxed: roles default to read/edit-only tools, so the agent cannot execute
   // anything on the host; code runs only inside the container, via the exit check.
-  const roles = sb ? { agent: SANDBOXED_ROLES.implementer, reviewer: SANDBOXED_ROLES.reviewer } : { agent: ['claude', '-p', '--permission-mode', 'acceptEdits', '{prompt}'], reviewer: ['claude', '-p', '{prompt}'] };
-  const runCfg = { ...roles, maxAttempts: 2, timeoutSec: 1800, ...(cfg.run ?? {}) };
+  // Resolved and validated before anything is spawned or any worktree is made.
+  const roles = resolveRoles(cfg, sb ? { agent: SANDBOXED_ROLES.implementer, reviewer: SANDBOXED_ROLES.reviewer } : { agent: ['claude', '-p', '--permission-mode', 'acceptEdits', '{prompt}'], reviewer: ['claude', '-p', '{prompt}'] });
+  const runCfg = { maxAttempts: 2, timeoutSec: 1800, ...(cfg.run ?? {}), agent: roles.agent.command, reviewer: roles.reviewer.command };
   delete runCfg.sandbox;
+  const usages = [];
   const check = (command) => {
     if (!sb) return sh(command, dir, runCfg.timeoutSec);
     if (sb.setup) {
@@ -201,11 +236,12 @@ export function runPlan(root, cfg, planFile, opts = {}) {
     for (let a = 1; a <= (accepted ? 0 : runCfg.maxAttempts); a++) {
       log(`${task.id} — ${task.title} · attempt ${a}/${runCfg.maxAttempts}`);
       const before = snapshot(dir, guarded, task.files);
-      const agent = agentRun(runCfg.agent, implementPrompt(task, spec, failure), dir, runCfg.timeoutSec);
+      const agent = agentRun(runCfg.agent, implementPrompt(task, spec, failure), dir, runCfg.timeoutSec, roles.agent.role);
+      usages.push(agent.usage);
       const touched = violations(before, snapshot(dir, guarded, task.files));
       if (touched.length) {
         // Not run through the check at all: a pass bought by editing the grader is not a pass.
-        entry.attempts.push({ agentExit: agent.code, protectedTouched: touched, checkExit: -1 });
+        entry.attempts.push({ agentExit: agent.code, protectedTouched: touched, checkExit: -1, usage: agent.usage });
         failure = `You changed protected files, which decide whether work passes and are not part of this task: ${touched.map((t) => `${t.path} (${t.change})`).join(', ')}. Leave them alone and fix the code. If one of them really must change, say so and stop.`;
         log(`${task.id}: attempt ${a} touched protected files (${touched.map((t) => t.path).join(', ')}); rolled back`);
         git(dir, ['checkout', '-q', '--', '.']);
@@ -213,7 +249,7 @@ export function runPlan(root, cfg, planFile, opts = {}) {
         continue;
       }
       const result = check(task.check);
-      entry.attempts.push({ agentExit: agent.code, ...(agent.error ? { agentError: agent.error } : {}), checkExit: result.code });
+      entry.attempts.push({ agentExit: agent.code, ...(agent.error ? { agentError: agent.error } : {}), checkExit: result.code, usage: agent.usage });
       if (result.code === 0) break;
       // Always non-empty: a check that fails silently (grep -q, test -f) still tells
       // the next attempt THAT it failed and with which command.
@@ -243,7 +279,9 @@ export function runPlan(root, cfg, planFile, opts = {}) {
       entry.review = `UNSURE, accepted by the human (${accepted.id}${accepted.decision.note ? `: ${accepted.decision.note}` : ''})`;
     } else if (opts.review !== false) {
       const treeReviewed = workingTree(dir);
-      const rev = agentRun(runCfg.reviewer, reviewPrompt(task, spec, diff), dir, runCfg.timeoutSec);
+      const rev = agentRun(runCfg.reviewer, reviewPrompt(task, spec, diff), dir, runCfg.timeoutSec, roles.reviewer.role);
+      usages.push(rev.usage);
+      entry.reviewUsage = rev.usage;
       let verdict = rev.out.match(/VERDICT:\s*(GO|NO-GO|UNSURE)\b(.*)$/m);
       entry.review = verdict ? `${verdict[1]}${verdict[2]}`.trim() : 'no verdict';
       entry.findings = reviewFindings(rev.out);
@@ -274,6 +312,8 @@ export function runPlan(root, cfg, planFile, opts = {}) {
     done.add(task.id);
     log(`${task.id} done${entry.review ? ` · review ${entry.review}` : ''}`);
   }
+  report.roles = { implementer: roles.agent.role, reviewer: roles.reviewer.role };
+  report.usage = sumUsage(usages);
   report.finishedAt = new Date().toISOString();
   const out = join(root, STATE_DIR, 'runs');
   mkdirSync(out, { recursive: true });

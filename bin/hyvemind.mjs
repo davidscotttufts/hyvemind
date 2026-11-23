@@ -22,6 +22,7 @@ import { QUIET_HOURS, inspectWorktrees, pruneWorktrees, renderWorktrees } from '
 import { friction, mine } from '../src/mine.mjs';
 import { runProbes } from '../src/probe.mjs';
 import { runPlan } from '../src/run.mjs';
+import { renderUsage } from '../src/usage.mjs';
 import { checkEvidence, postStatus } from '../src/status.mjs';
 import { waitQuiet } from '../src/contention.mjs';
 import { atOrWorse, censusSince, renderCensus, runCensus } from '../src/census.mjs';
@@ -523,7 +524,7 @@ async function main() {
         log: (m) => console.log(m),
       });
       for (const t of report.tasks) console.log(`${t.id.padEnd(4)} ${(t.status ?? '').padEnd(15)} ${t.title ?? ''}`);
-      console.log(`branch ${report.branch} · worktree ${report.dir}\nreport: ${file}`);
+      console.log(`${renderUsage(report.usage)}\nbranch ${report.branch} · worktree ${report.dir}\nreport: ${file}`);
       const open = report.tasks.filter((t) => !['done', 'already-done', 'no-change'].includes(t.status));
       // Waiting on the human is neither success nor failure.
       if (open.length) process.exitCode = open.every((t) => t.status === 'waiting') ? WAITING : 1;

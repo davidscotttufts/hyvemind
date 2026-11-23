@@ -317,6 +317,23 @@ variables outside the allowlist are absent, `~/.ssh`, `~/.codex` and `~/.claude`
 absent, files written in `/work` belong to you, and `chown` is refused. Repeat it on
 your runtime with `HYVE_SANDBOX_REAL=podman npm test`.
 
+#### A model per role, and what the run cost
+
+```json
+"run": { "roles": { "implementer": { "model": "opus", "effort": "high" },
+                    "reviewer":    { "model": "sonnet" } } }
+```
+
+The built-in Claude Code roles pass these as `--model` and `--effort`. A custom
+`run.agent` or `run.reviewer` is used as written, so it must contain `{model}` (or
+`{effort}`) to receive one. A role that sets a model its command can't take is an error
+before anything starts.
+
+Each run report records the roles, and for every agent call the cost, tokens and model
+that the agent itself reported. The run prints the total. Claude Code reports these in
+its JSON result. An agent that prints plain text is recorded as "not reported", never as
+zero, and the total then reads "at least".
+
 #### What `run` refuses
 
 - **A check that already passes.** Each exit check runs once before any work. If it
