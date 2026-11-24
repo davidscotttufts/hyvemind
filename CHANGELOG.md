@@ -3,6 +3,12 @@
 ## Unreleased
 
 Added:
+- **Skill sources** (`skills.sources`): install skills from another repository at a pinned
+  commit, through the same manifest as the bundled ones. `sources --check` shows whether
+  a pin is behind.
+- **`backport <skill>`**: offer local edits to a sourced skill back to its repository, as
+  a branch that starts at the installed commit. `--push` pushes it and opens a pull
+  request; without it nothing leaves the machine.
 - `run.roles`: a model and an effort level per role (`implementer`, `reviewer`), checked
   before anything starts. Each run report records them, and the cost, tokens and model of
   every agent call as the agent reported it. A call with no usage is "not reported", and

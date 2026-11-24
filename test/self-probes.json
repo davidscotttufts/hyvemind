@@ -1168,5 +1168,45 @@
     "expectOutput": [
       "a custom command must take {model} to be given one"
     ]
+  },
+  {
+    "id": "source-pin-must-be-a-commit",
+    "src": "src/sources.mjs",
+    "old": "if (!SHA.test(s.ref ?? '')) errs.push(",
+    "new": "if (false) errs.push(",
+    "test": "test/sources.test.mjs",
+    "expectOutput": [
+      "a pin must be a full commit hash"
+    ]
+  },
+  {
+    "id": "source-edit-keeps-its-base",
+    "src": "src/install.mjs",
+    "old": "if (f.origin) next.sources[rel] = keep ? (manifest.sources?.[rel] ?? f.origin) : f.origin;",
+    "new": "if (f.origin) next.sources[rel] = f.origin;",
+    "test": "test/sources.test.mjs",
+    "expectOutput": [
+      "keeps the commit it started from"
+    ]
+  },
+  {
+    "id": "source-name-clash-refused",
+    "src": "src/install.mjs",
+    "old": "if (units.some((x) => x.dir === u.dir)) throw",
+    "new": "if (false) throw",
+    "test": "test/sources.test.mjs",
+    "expectOutput": [
+      "a source installs its skills at the pinned commit"
+    ]
+  },
+  {
+    "id": "backport-starts-at-installed-commit",
+    "src": "src/backport.mjs",
+    "old": "must(dir, ['checkout', '-q', '-b', branch, e.origin.ref]);",
+    "new": "must(dir, ['checkout', '-q', '--orphan', branch]);",
+    "test": "test/sources.test.mjs",
+    "expectOutput": [
+      "backport puts the local edit on a branch that starts at the installed commit"
+    ]
   }
 ]

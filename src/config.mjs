@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sourceErrors } from './sources.mjs';
 
 export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const CONFIG_FILE = 'hyvemind.json';
@@ -124,6 +125,7 @@ export function validate(cfg) {
   need(typeof cfg.skills?.prefix === 'string' && /^[a-z0-9-]*$/.test(cfg.skills.prefix), 'skills.prefix must be lowercase letters, digits or "-"');
   need(Array.isArray(cfg.skills?.targets) && cfg.skills.targets.length > 0, 'skills.targets must be a non-empty array');
   need(cfg.skills?.include === 'all' || Array.isArray(cfg.skills?.include), 'skills.include must be "all" or an array');
+  errs.push(...sourceErrors(cfg.skills?.sources));
   // ── skills.defer (bundled names are checked against the selection in install.mjs) ──
   need(isObject(cfg.skills?.defer) && Object.values(cfg.skills.defer).every((v) => typeof v === 'string' && /^[\w.:/-]+$/.test(v)),
     'skills.defer must map bundled skill names to project skill names (letters, digits, - _ . : /)');
