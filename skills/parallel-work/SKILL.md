@@ -62,3 +62,8 @@ rebase merges) `git cherry origin/<base> <branch>` shows no `+` lines. "The PR s
 merged" is not proof. Then remove **your own** worktrees, branches, queue lines,
 background processes and temp files (`git worktree remove`, `git push origin
 --delete <branch>`). Never remove anything you didn't create.
+
+`{{cli}} worktrees` runs those checks for every worktree and says why each is kept:
+not landed, unsaved files, a live process working in it, or touched in the last day.
+Before any sweep wider than your own worktrees, read its output. A worktree with a live
+process belongs to a running session, however merged it looks.

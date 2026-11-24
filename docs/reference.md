@@ -158,6 +158,32 @@ The registry is `~/.hyvemind/registry.json` (`HYVEMIND_HOME` moves it). `init` a
 `update` add the repo they run in. A repo is listed once, as its main worktree. A
 registry file that can't be read is an error, not an empty list.
 
+### status
+
+`hyvemind status` answers "where do things stand?" on one screen: every pending decision
+on the machine, then for each registered repository its install drift, its worktrees
+(how many have a live process, unsaved files, or are removable) and whether the main
+checkout's current tree has green evidence. `--prs` adds open pull requests and reads
+evidence that lives in a commit status; that is the only part that uses the network.
+
+### worktrees
+
+`hyvemind worktrees` lists this repository's worktrees and says why each is kept. One is
+removable only when all of these hold:
+
+- everything on it is in `origin/<base>`: an ancestor, patch-equivalent commits, or a
+  merged pull request whose head is exactly its HEAD (so a squash merge counts, and a PR
+  merged at an older commit does not cover later ones);
+- no modified, staged or untracked files;
+- no process has its working directory inside it;
+- git has not written to it for `--quiet-hours` (default 24);
+- it is not locked, not the main worktree, and not where the command is running.
+
+`--prune` lists the removable ones. `--prune --write` removes them, re-checking each one
+immediately before, with `git worktree remove` and no `--force`. Branches are left alone.
+"Landed" is judged against `origin/<base>` as of your last fetch, so a stale fetch only
+makes it keep more.
+
 ### ask, decisions and decide
 
 The decision queue is where an agent puts a question for you, and where you answer it.

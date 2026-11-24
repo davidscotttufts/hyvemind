@@ -3,6 +3,11 @@
 ## Unreleased
 
 Added:
+- **`status`**: pending decisions for the whole machine, and for each registered repo its
+  install drift, worktrees and evidence, on one screen. `--prs` adds open pull requests.
+- **`worktrees`**: why each worktree is kept or removable. Removable means landed in
+  `origin/<base>`, clean, no live process working in it, and untouched for a day.
+  `--prune --write` removes those, re-checking each right before, never with `--force`.
 - **The decision queue** (`ask`, `decisions`, `decide`): a question for the human is a
   record under `~/.hyvemind/decisions`, listed for the whole machine, oldest first, with
   its options, the asker's recommendation and what it blocks. Answers are recorded with a
