@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { resolveConfig } from '../src/config.mjs';
-import { ceiling, censusFile, CENSUS_DEFAULTS, runCensus } from '../src/census.mjs';
+import { atOrWorse, ceiling, censusFile, censusSince, CENSUS_DEFAULTS, runCensus } from '../src/census.mjs';
 import { repo, sh, write } from './helpers.mjs';
 
 // The census parses with typescript, a devDependency. In a fresh checkout without
@@ -78,4 +78,25 @@ test('runCensus: duplicate bodies across files, blob-keyed ledger, grades surviv
   assert.deepEqual(second.files.map((f) => [f.file, f.status, f.grade ?? null]), [['a.test.ts', 'unchanged', 'D'], ['b.test.ts', 'changed', null]]);
   assert.equal(second.summary.flags.DUPLICATE_BODY, 0);
   assert.equal(second.summary.changed, 1);
+});
+
+test('censusSince reads only the test files a change touched, and reports untracked ones it could not read', { skip: SKIP }, () => {
+  const dir = repo({ 'test/old.test.ts': "import { it } from 'vitest';\nit('old and empty', () => {});\n", 'src/a.ts': 'export const a = 1;\n' });
+  sh(dir, 'git', ['branch', 'base']);
+  write(dir, {
+    'test/empty.test.ts': "import { it } from 'vitest';\nit('does the thing', () => {});\n",
+    'test/real.test.ts': "import { it, expect } from 'vitest';\nit('adds', () => { expect(1 + 1).toBe(2); });\n",
+    'src/a.ts': 'export const a = 2;\n',
+  });
+  sh(dir, 'git', ['add', '-A']); sh(dir, 'git', ['commit', '-q', '-m', 'change']);
+  write(dir, { 'test/later.test.ts': "import { it } from 'vitest';\nit('x', () => {});\n" });
+  const r = censusSince(dir, cfg, 'base', { ts });
+  assert.equal(r.changed, 3);
+  assert.deepEqual(r.files.map((f) => f.file).sort(), ['test/empty.test.ts', 'test/real.test.ts'], 'the untouched old test is not re-read');
+  const by = Object.fromEntries(r.files.map((f) => [f.file, f.ceiling]));
+  assert.ok(by['test/real.test.ts'] < 'D', `a test that asserts a value is not flagged (got ${by['test/real.test.ts']})`);
+  assert.ok(by['test/empty.test.ts'] >= 'D', `a case that asserts nothing has a low ceiling (got ${by['test/empty.test.ts']})`);
+  assert.deepEqual(atOrWorse(r.files, 'D').map((f) => f.file), ['test/empty.test.ts']);
+  assert.deepEqual(r.untrackedTests, ['test/later.test.ts']);
+  assert.throws(() => censusSince(dir, cfg, 'no-such-ref', { ts }), /cannot compare with no-such-ref/);
 });

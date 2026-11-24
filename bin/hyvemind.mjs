@@ -24,7 +24,7 @@ import { runProbes } from '../src/probe.mjs';
 import { runPlan } from '../src/run.mjs';
 import { checkEvidence, postStatus } from '../src/status.mjs';
 import { waitQuiet } from '../src/contention.mjs';
-import { renderCensus, runCensus } from '../src/census.mjs';
+import { atOrWorse, censusSince, renderCensus, runCensus } from '../src/census.mjs';
 import { githubForge, localForge, runTrain } from '../src/train.mjs';
 
 const HELP = `hyvemind ${pkgVersion()}
@@ -89,6 +89,9 @@ Usage: hyvemind <command> [options]
                         little, gives each file a grade CEILING, and keeps a ledger keyed
                         on blob sha (--out <ledger.json>, default .hyve/census.json;
                         --md <file> for a summary)
+            --since <ref>     only test files changed since <ref>; writes no ledger
+            --fail-on <B|C|D|F>   with --since: exit 1 if a changed test file's ceiling
+                                  is that or worse (a line for your own CI script)
   probe <probes.json>   Sabotage probes: break the code, prove the test goes red
             --isolate     probe a throwaway worktree of HEAD (setup: probe.setup or train.setup)
   eval [skill[:scenario]…]  Bare model vs with-skill on each skill's scenarios
@@ -117,7 +120,7 @@ Global: --cwd <dir> (project root; default: the git toplevel of the current dire
 const { values: o, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, prs: { type: 'boolean' }, prune: { type: 'boolean' }, 'quiet-hours': { type: 'string' }, option: { type: 'string', multiple: true }, recommend: { type: 'string' }, blocks: { type: 'string' }, from: { type: 'string' }, note: { type: 'string' }, for: { type: 'string' }, here: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
+    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, since: { type: 'string' }, 'fail-on': { type: 'string' }, prs: { type: 'boolean' }, prune: { type: 'boolean' }, 'quiet-hours': { type: 'string' }, option: { type: 'string', multiple: true }, recommend: { type: 'string' }, blocks: { type: 'string' }, from: { type: 'string' }, note: { type: 'string' }, for: { type: 'string' }, here: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
     only: { type: 'string' }, 'keep-going': { type: 'boolean' }, quiet: { type: 'boolean' },
     agent: { type: 'string' }, model: { type: 'string' }, trials: { type: 'string' }, keep: { type: 'boolean' },
     filter: { type: 'string' }, friction: { type: 'boolean' }, days: { type: 'string' }, all: { type: 'boolean' }, root: { type: 'string' }, json: { type: 'boolean' },
@@ -321,14 +324,14 @@ async function main() {
       if (o.post) {
         const r = postStatus(root, { dryRun: o['dry-run'], cfg });
         if (r.deferred) { console.log(`not posting hyvemind/gate: "${r.context}" (evidence.status) is authoritative and is posted by the project's own gate\n${r.external.message}`); return; }
-        if (r.reason) { console.log(`not posted: ${r.reason}`); process.exitCode = 1; return; }
+        if (r.reason) { console.log(`not posted: ${r.reason}`); process.exitCode = r.waiting ? WAITING : 1; return; }
         console.log(`${r.posted ? 'posted' : 'would post'} ${r.state} to ${r.slug}@${r.sha.slice(0, 12)} (hyvemind/gate): ${r.description}`);
         if (r.state !== 'success') process.exitCode = 1;
         return;
       }
       const r = checkEvidence(root, cfg);
       console.log(r.message);
-      if (!r.ok) process.exitCode = 1;
+      if (!r.ok) process.exitCode = r.waiting ? WAITING : 1;
       return;
     }
     case 'probe': {
@@ -346,6 +349,25 @@ async function main() {
       const cfg = readConfig(root);
       const ledgerFile = resolve(root, o.out ?? join('.hyve', 'census.json'));
       const previous = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, 'utf8')) : null;
+      if (o.since) {
+        // Only the test files this change touched: cheap enough to be a line in the project's own CI.
+        const since = censusSince(root, cfg, o.since);
+        const all = since.files;
+        const failOn = o['fail-on']?.toUpperCase();
+        if (failOn && !['B', 'C', 'D', 'F'].includes(failOn)) throw new Error('--fail-on takes a ceiling: B, C, D or F');
+        const bad = failOn ? atOrWorse(all, failOn) : [];
+        // An untracked test file is invisible to the census: with --fail-on that is a failure, not a pass.
+        const unseen = since.untrackedTests;
+        if (o.json) console.log(JSON.stringify({ since: o.since, changedFiles: since.changed, testFiles: all, untrackedTests: unseen, failed: bad.map((f) => f.file) }, null, 1));
+        else {
+          console.log(`${since.changed} file(s) changed since ${o.since} · ${all.length} of them test file(s)`);
+          if (unseen.length) console.log(`! ${unseen.length} untracked test file(s) were not read (git add them first): ${unseen.slice(0, 5).join(', ')}`);
+          for (const f of all) console.log(`  ${f.ceiling}  ${f.file}${f.reasons.length ? `  (${f.reasons[0]})` : ''}`);
+          if (failOn) console.log(bad.length ? `\n${bad.length} changed test file(s) at ceiling ${failOn} or worse: they cannot fail, or claim little. Fix them, or prove them with "hyvemind probe".` : `\nno changed test file is at ceiling ${failOn} or worse`);
+        }
+        if (bad.length || (failOn && unseen.length)) process.exitCode = 1;
+        return;
+      }
       const r = runCensus(root, cfg, { prefixes: rest, previous });
       mkdirSync(dirname(ledgerFile), { recursive: true });
       writeFileSync(ledgerFile, JSON.stringify(r, null, 1) + '\n');

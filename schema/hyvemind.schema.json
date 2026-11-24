@@ -492,6 +492,36 @@
           "description": "Shell command run when a decision is filed. It gets HYVEMIND_DECISION_ID, _QUESTION, _REPO, _BLOCKS and _RECOMMEND in its environment. null: a macOS notification. HYVEMIND_NOTIFY overrides it; \"off\" silences it"
         }
       }
+    },
+    "protect": {
+      "type": "object",
+      "description": "Paths that decide whether work passed. A change to one is never silent",
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Repo-relative globs (** any depth, * within a segment), e.g. \"test/**\", \"scripts/ci.sh\", \".github/workflows/**\". Empty: off. hyvemind.json is protected whenever anything is"
+        },
+        "require": {
+          "enum": [
+            null,
+            "decision"
+          ],
+          "default": null,
+          "description": "\"decision\": evidence is refused until the human approves that exact set of protected changes (hyvemind decide)"
+        },
+        "base": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Ref to compare with; default origin/<train.base or main>"
+        }
+      }
     }
   }
 }

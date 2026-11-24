@@ -6,6 +6,7 @@ import { STATE_DIR, pkgVersion } from './config.mjs';
 import { head, workingTree } from './git.mjs';
 import { ensureStateIgnored } from './install.mjs';
 import { cleanEnv } from './probe.mjs';
+import { protectedChanges } from './protect.mjs';
 import { leaseShell } from './broker.mjs';
 import { sample } from './contention.mjs';
 
@@ -56,6 +57,10 @@ export async function runGates(root, cfg, { only = null, keepGoing = false, quie
   // A gate that edits the tree (formatters, codegen) or a concurrent edit means the
   // verdict describes neither tree. Report that instead of a misleading green.
   record.verdict = record.treeAfter !== record.treeBefore ? 'invalid' : red ? 'red' : 'green';
+  // What decides "done" and was changed on the way here. Recorded with the verdict, so
+  // a green that needed an edit to the gate says so wherever the record is read.
+  const prot = protectedChanges(root, cfg);
+  if (prot) record.protected = prot;
   record.finishedAt = new Date().toISOString();
   mkdirSync(evidenceDir(root), { recursive: true });
   const file = join(evidenceDir(root), `gate-${record.startedAt.replace(/[:.]/g, '-')}.json`);

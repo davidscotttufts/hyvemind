@@ -184,6 +184,28 @@ immediately before, with `git worktree remove` and no `--force`. Branches are le
 "Landed" is judged against `origin/<base>` as of your last fetch, so a stale fetch only
 makes it keep more.
 
+### Protected paths
+
+Some files decide whether work passed: the tests, the gate script, the CI config. An
+agent that can't make a check pass can make it stop checking. `protect.paths` names
+those files, so a change to one is never silent:
+
+```json
+"protect": { "paths": ["test/**", "scripts/ci.sh", ".github/workflows/**"], "require": "decision" }
+```
+
+- `gate` records which protected files differ from the base (`origin/<train.base>`, or
+  `protect.base`), including removed files and newly skipped tests.
+- `evidence` then says `! gate changed: …` under a green result.
+- With `"require": "decision"`, that green is not proof until you approve. `evidence`
+  files the question once, exits 75, and passes after `hyvemind decide <id> approve`.
+  The approval covers exactly those changes: one more edit to a protected file needs its
+  own answer. `evidence --post` follows the same rule.
+- `run` fails an attempt that touches a protected file the task didn't declare in its
+  `Files:`, before the exit check is run, and rolls it back.
+
+`hyvemind.json` is protected whenever anything is. With no `paths`, protection is off.
+
 ### ask, decisions and decide
 
 The decision queue is where an agent puts a question for you, and where you answer it.
@@ -295,6 +317,17 @@ variables outside the allowlist are absent, `~/.ssh`, `~/.codex` and `~/.claude`
 absent, files written in `/work` belong to you, and `chown` is refused. Repeat it on
 your runtime with `HYVE_SANDBOX_REAL=podman npm test`.
 
+#### What `run` refuses
+
+- **A check that already passes.** Each exit check runs once before any work. If it
+  passes, no agent is started: either the task is done or the check can't fail. Fix the
+  plan.
+- **An edit to the grader.** See [Protected paths](#protected-paths).
+- **An approval that doesn't show its work.** The reviewer writes one line per
+  requirement, `REQ: <requirement> | met: yes|no | evidence: <where>`. A `GO` with no
+  `REQ` lines, with a `met: no`, or with no evidence is refused.
+- **A reviewer that edits.** If the tree changes during review, the review is refused.
+
 #### A reviewer that isn't sure
 
 The reviewer may answer `VERDICT: UNSURE — <what it would need to decide>`. `run` then
@@ -338,6 +371,11 @@ ceiling.
 The ledger (`--out`, default `.hyve/census.json`) is keyed on each file's git blob, so a
 grade lasts only while the file is unchanged. `--md` writes a summary. Settings:
 `census.testPattern`, `census.headerRef`, `census.typescriptFrom`.
+
+`hyvemind census --since origin/main --fail-on D` reads only the test files your change
+touched and exits 1 if one of them has a ceiling of D or worse. It writes no ledger, so
+it fits as one line in your own CI script. Untracked test files can't be read and fail
+the line.
 
 ### probe
 

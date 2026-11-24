@@ -314,6 +314,24 @@ export function runCensus(root, cfg, { prefixes = [], previous = null, ts: tsIn 
   };
 }
 
+// Only the test files a change touched (committed since the merge base with `since`,
+// plus uncommitted and untracked ones). Cheap enough to be one line in a project's own
+// CI script, which is where a new test that cannot fail should be caught.
+export function censusSince(root, cfg, since, { ts = null } = {}) {
+  const git = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 }).trim();
+  let mb;
+  try { mb = git(['merge-base', since, 'HEAD']); } catch { throw new Error(`cannot compare with ${since}: no such ref, or no common history`); }
+  // Untracked files are not in `git ls-files -s`, which the census reads: say so rather than skip them silently.
+  const untracked = git(['ls-files', '-o', '--exclude-standard']).split('\n').filter(Boolean);
+  const touched = git(['diff', '--name-only', '--diff-filter=AMR', mb]).split('\n').filter(Boolean);
+  const files = touched.length ? runCensus(root, cfg, { prefixes: touched, ts }).files.filter((f) => touched.includes(f.file)) : [];
+  const testRe = new RegExp({ ...CENSUS_DEFAULTS, ...(cfg.census ?? {}) }.testPattern);
+  return { since, changed: touched.length, files, untrackedTests: untracked.filter((f) => testRe.test(f)) };
+}
+
+// Ceilings order A < B < C < D < F: the files at `grade` or worse.
+export const atOrWorse = (files, grade) => files.filter((f) => f.ceiling >= grade);
+
 export function renderCensus(r) {
   const s = r.summary;
   const lines = ['# Test census', '', `${s.files} files · ${s.cases} cases · ${s.changed} new or changed`, '',

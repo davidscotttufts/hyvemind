@@ -3,6 +3,20 @@
 ## Unreleased
 
 Added:
+- **Protected paths** (`protect.paths`): a change to what decides "done" is recorded by
+  `gate`, shown by `evidence`, and with `protect.require: "decision"` is not proof until
+  the human approves that exact set of changes.
+- `census --since <ref> --fail-on <ceiling>`: only the test files a change touched, for a
+  line in your own CI.
+- `run` refuses an exit check that passes before any work, an attempt that edits a
+  protected file outside the task's `Files:`, a `GO` that contradicts or omits its
+  findings, and a reviewer that changes files.
+
+Changed:
+- `run`'s reviewer must now list `REQ: … | met: yes|no | evidence: …` lines. A bare
+  `VERDICT: GO` is refused. A custom `run.reviewer` prompt wrapper needs no change; a
+  custom reviewer command that prints only a verdict does.
+- `run` runs each exit check once more, before the agent starts.
 - **`status`**: pending decisions for the whole machine, and for each registered repo its
   install drift, worktrees and evidence, on one screen. `--prs` adds open pull requests.
 - **`worktrees`**: why each worktree is kept or removable. Removable means landed in

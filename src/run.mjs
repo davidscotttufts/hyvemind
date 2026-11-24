@@ -20,6 +20,7 @@ import { argv } from './evals.mjs';
 import { ask, list as listDecisions } from './decisions.mjs';
 import { git, workingTree } from './git.mjs';
 import { home } from './home.mjs';
+import { matcher, snapshot, violations } from './protect.mjs';
 import { runInSandbox, SANDBOXED_ROLES, sandboxConfig } from './sandbox.mjs';
 
 export function parsePlan(text) {
@@ -92,9 +93,27 @@ export function reviewPrompt(task, spec, diff) {
     `\n## Task\n${task.body}`,
     `\n## Diff\n${diff.slice(0, 60000)}`,
     '\nReview only for defects that matter: wrong behaviour, missing acceptance criteria, security, data loss, a test that cannot fail.',
+    'Do not change any file.',
+    'For each thing the task or spec requires, write one line: "REQ: <requirement> | met: yes|no | evidence: <file and line, or what you ran>".',
     'If you cannot tell from the diff whether a requirement is met, do not guess either way.',
     'End with exactly one line: "VERDICT: GO", "VERDICT: NO-GO — <reason>", or "VERDICT: UNSURE — <what you would need to see to decide>".',
   ].join('\n');
+}
+
+// A reviewer's findings, and whether its verdict agrees with them. GO needs at least one
+// REQ line and no "met: no": a bare GO is the reviewer's word, and a GO that lists an
+// unmet requirement contradicts itself. Returns a refusal reason, or null.
+export function reviewFindings(out) {
+  return [...out.matchAll(/^\W*REQ:\s*(.+?)\s*\|\s*met:\s*(yes|no)\b\s*(?:\|\s*evidence:\s*(.*))?$/gim)].map((m) => ({ requirement: m[1], met: m[2].toLowerCase() === 'yes', evidence: (m[3] ?? '').trim() }));
+}
+export function inconsistent(verdict, findings) {
+  if (verdict !== 'GO') return null;
+  if (!findings.length) return 'GO with no REQ lines: nothing shows what was checked';
+  const unmet = findings.filter((f) => !f.met);
+  if (unmet.length) return `GO contradicts its own findings: not met: ${unmet.map((f) => f.requirement).join('; ')}`;
+  const bare = findings.filter((f) => !f.evidence);
+  if (bare.length) return `GO without evidence for: ${bare.map((f) => f.requirement).join('; ')}`;
+  return null;
 }
 
 // The latest decision a run filed for this task in this worktree, if any.
@@ -167,9 +186,32 @@ export function runPlan(root, cfg, planFile, opts = {}) {
       git(dir, ['checkout', '-q', '--', '.']);
       git(dir, ['clean', '-q', '-fd']);
     }
+    // Red baseline: an exit check that passes before any work proves nothing about the
+    // work. Either the task is already done or the check is too weak to tell.
+    if (!accepted && git(dir, ['status', '--porcelain']).out === '') {
+      entry.baselineExit = check(task.check).code;
+      if (entry.baselineExit === 0) {
+        entry.status = 'check-already-passes';
+        log(`${task.id}: the exit check passes before any work (${task.check}). Either the task is already done or the check cannot fail; fix the plan. No agent was run.`);
+        break;
+      }
+    }
+    // The task may write the files it declares; every other protected path is off limits.
+    const guarded = matcher(cfg);
     for (let a = 1; a <= (accepted ? 0 : runCfg.maxAttempts); a++) {
       log(`${task.id} — ${task.title} · attempt ${a}/${runCfg.maxAttempts}`);
+      const before = snapshot(dir, guarded, task.files);
       const agent = agentRun(runCfg.agent, implementPrompt(task, spec, failure), dir, runCfg.timeoutSec);
+      const touched = violations(before, snapshot(dir, guarded, task.files));
+      if (touched.length) {
+        // Not run through the check at all: a pass bought by editing the grader is not a pass.
+        entry.attempts.push({ agentExit: agent.code, protectedTouched: touched, checkExit: -1 });
+        failure = `You changed protected files, which decide whether work passes and are not part of this task: ${touched.map((t) => `${t.path} (${t.change})`).join(', ')}. Leave them alone and fix the code. If one of them really must change, say so and stop.`;
+        log(`${task.id}: attempt ${a} touched protected files (${touched.map((t) => t.path).join(', ')}); rolled back`);
+        git(dir, ['checkout', '-q', '--', '.']);
+        git(dir, ['clean', '-q', '-fd']);
+        continue;
+      }
       const result = check(task.check);
       entry.attempts.push({ agentExit: agent.code, ...(agent.error ? { agentError: agent.error } : {}), checkExit: result.code });
       if (result.code === 0) break;
@@ -185,8 +227,8 @@ export function runPlan(root, cfg, planFile, opts = {}) {
       entry.attempts.push({ resumedFrom: accepted.id, checkExit: result.code });
     }
     if (entry.attempts.at(-1).checkExit !== 0) {
-      entry.status = 'failed-check';
-      log(`${task.id} FAILED its exit check after ${runCfg.maxAttempts} attempt(s): ${task.check}`);
+      entry.status = entry.attempts.at(-1).protectedTouched ? 'touched-protected' : 'failed-check';
+      log(entry.status === 'touched-protected' ? `${task.id} STOPPED: every attempt changed protected files` : `${task.id} FAILED its exit check after ${runCfg.maxAttempts} attempt(s): ${task.check}`);
       break;
     }
     git(dir, ['add', '-A']);
@@ -200,9 +242,14 @@ export function runPlan(root, cfg, planFile, opts = {}) {
     if (accepted) {
       entry.review = `UNSURE, accepted by the human (${accepted.id}${accepted.decision.note ? `: ${accepted.decision.note}` : ''})`;
     } else if (opts.review !== false) {
+      const treeReviewed = workingTree(dir);
       const rev = agentRun(runCfg.reviewer, reviewPrompt(task, spec, diff), dir, runCfg.timeoutSec);
-      const verdict = rev.out.match(/VERDICT:\s*(GO|NO-GO|UNSURE)\b(.*)$/m);
+      let verdict = rev.out.match(/VERDICT:\s*(GO|NO-GO|UNSURE)\b(.*)$/m);
       entry.review = verdict ? `${verdict[1]}${verdict[2]}`.trim() : 'no verdict';
+      entry.findings = reviewFindings(rev.out);
+      // A reviewer reads. One that changed the tree reviewed something other than what is committed.
+      const refused = workingTree(dir) !== treeReviewed ? 'the reviewer changed files in the worktree' : inconsistent(verdict?.[1], entry.findings);
+      if (refused) { entry.review = `refused: ${refused}`; verdict = null; }
       if (verdict?.[1] === 'UNSURE' && decisions) {
         // The reviewer could not decide, and says what it would need. That is a question
         // for the human, not a NO-GO: park the task, keep the change, stop the run.
