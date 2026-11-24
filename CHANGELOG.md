@@ -3,6 +3,15 @@
 ## Unreleased
 
 Added:
+- **The decision queue** (`ask`, `decisions`, `decide`): a question for the human is a
+  record under `~/.hyvemind/decisions`, listed for the whole machine, oldest first, with
+  its options, the asker's recommendation and what it blocks. Answers are recorded with a
+  note and never changed. `ask` notifies (macOS, or `notify.command`). Pending is exit 75.
+- `run`: a reviewer can answer `VERDICT: UNSURE — <what it needs>`. The task is parked as
+  a decision instead of being blocked, and resumes on `accept` (only for the tree the
+  reviewer saw) or retries on `reject`.
+- The `decisions` skill: file the question, keep working on what doesn't depend on it,
+  and don't treat a pending answer as a yes.
 - **`fleet`**: one table of every repository on the machine with hyvemind in it and how
   each has drifted. `fleet --scan <dir>` finds installs, including skill folders copied in
   by hand with no `hyvemind.json`. `fleet update` shows what `update` would change

@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { CONFIG_FILE, pkgVersion, readConfig, resolveConfig, writeConfig } from '../src/config.mjs';
 import { detect } from '../src/detect.mjs';
+import { WAITING, ask, decide, get as getDecision, list as listDecisions, notify, render as renderDecisions, wait as waitDecision, withdraw } from '../src/decisions.mjs';
 import { doctor } from '../src/doctor.mjs';
 import { fleet, fleetUpdate, forget, register, renderFleet, scan } from '../src/fleet.mjs';
 import { home } from '../src/home.mjs';
@@ -41,6 +42,15 @@ Usage: hyvemind <command> [options]
             fleet forget <path>   --json
   pin       Record npm's dist.integrity for the version in "cli" (refuses a release
             younger than coolingOffDays)   --allow-fresh   --dry-run
+  ask "<question>"      File a question for the human in the machine-wide decision queue
+            --option <text> (repeat)  --recommend <option>  --blocks "<what waits on it>"
+            --from <label>   who is asking (a session or agent name)
+            --wait <min>     wait for the answer; exit 0 with it, or 75 if still pending
+  decisions             Everything waiting on the human, on this machine, oldest first
+            --here  only this repository   --all  include settled ones   --json
+            --for <id>       one decision; exit 0 when decided, 75 while pending
+            decisions withdraw <id> [--note …]   the asker no longer needs it
+  decide <id> <choice>  Answer one (an option's text or its number)   --note "<why>"
   gate      Run the configured gates; record a verdict bound to the working tree
             --only <a,b>  run a subset (recorded as partial; never counts as evidence)
             --keep-going  run every gate even after a red one   --quiet
@@ -61,6 +71,8 @@ Usage: hyvemind <command> [options]
   run <plan.md>         Each plan task → a fresh agent in its own worktree; done = the
                         task's exit check; an independent reviewer must say GO
             --spec <file>  --only T1,T3  --no-review  --branch <name>
+            A reviewer that answers UNSURE files a decision and the run stops with exit 75;
+            "hyvemind decide <id> accept|reject", then re-run.
             --sandbox podman|docker  run exit checks in a container (no network, allowlisted env);
                                      the agent gets read/edit tools only
   census [path…]        Read every test case's AST: flags cases that cannot fail or claim
@@ -95,7 +107,7 @@ Global: --cwd <dir> (project root; default: the git toplevel of the current dire
 const { values: o, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
+    cwd: { type: 'string' }, preset: { type: 'string' }, 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, option: { type: 'string', multiple: true }, recommend: { type: 'string' }, blocks: { type: 'string' }, from: { type: 'string' }, note: { type: 'string' }, for: { type: 'string' }, here: { type: 'boolean' }, scan: { type: 'string' }, write: { type: 'boolean' },
     only: { type: 'string' }, 'keep-going': { type: 'boolean' }, quiet: { type: 'boolean' },
     agent: { type: 'string' }, model: { type: 'string' }, trials: { type: 'string' }, keep: { type: 'boolean' },
     filter: { type: 'string' }, friction: { type: 'boolean' }, days: { type: 'string' }, all: { type: 'boolean' }, root: { type: 'string' }, json: { type: 'boolean' },
@@ -192,6 +204,45 @@ async function main() {
       const rows = fleet();
       if (o.json) return console.log(JSON.stringify(rows, null, 2));
       console.log(renderFleet(rows));
+      return;
+    }
+    case 'ask': {
+      if (!rest[0]) throw new Error('usage: hyvemind ask "<question>" [--option a --option b] [--recommend a] [--blocks "<work>"] [--wait <min>]');
+      const command = (() => { try { return readConfig(root).notify?.command ?? undefined; } catch { return undefined; } })();
+      const d = ask({ question: rest.join(' '), options: o.option ?? [], recommend: o.recommend ?? null, blocks: o.blocks ?? null, from: o.from ?? null, cwd: process.cwd() },
+        { notifier: (rec) => notify(rec, command === undefined ? {} : { command: process.env.HYVEMIND_NOTIFY ?? command }) });
+      if (o.wait === undefined) {
+        console.log(o.json ? JSON.stringify(d, null, 2) : `filed ${d.id}. Keep working on what does not depend on it; check with "hyvemind decisions --for ${d.id}"`);
+        return;
+      }
+      const settled = await waitDecision(d.id, Number(o.wait));
+      console.log(o.json ? JSON.stringify(settled, null, 2) : settled.state === 'pending' ? `${d.id} is still pending after ${o.wait} min` : renderDecisions([settled]));
+      if (settled.state !== 'decided') process.exitCode = WAITING;
+      return;
+    }
+    case 'decisions': {
+      if (rest[0] === 'withdraw') {
+        if (!rest[1]) throw new Error('usage: hyvemind decisions withdraw <id> [--note …]');
+        const d = withdraw(rest[1], { note: o.note ?? null });
+        console.log(`withdrew ${d.id}`);
+        return;
+      }
+      if (rest[0]) throw new Error(`unknown decisions subcommand "${rest[0]}" (withdraw)`);
+      if (o.for) {
+        const d = getDecision(o.for);
+        console.log(o.json ? JSON.stringify(d, null, 2) : renderDecisions([d]));
+        if (d.state !== 'decided') process.exitCode = WAITING;
+        return;
+      }
+      const main = git(root, ['worktree', 'list', '--porcelain']).out.match(/^worktree (.+)$/m)?.[1] ?? root;
+      const rows = listDecisions({ state: o.all ? 'all' : 'pending', repo: o.here ? main : null });
+      console.log(o.json ? JSON.stringify(rows, null, 2) : renderDecisions(rows));
+      return;
+    }
+    case 'decide': {
+      if (!rest[0]) throw new Error('usage: hyvemind decide <id> <choice> [--note "<why>"]');
+      const d = decide(rest[0], rest.slice(1).join(' '), { note: o.note ?? null });
+      console.log(o.json ? JSON.stringify(d, null, 2) : `${d.id} decided: ${d.decision.choice}${d.decision.note ? ` — ${d.decision.note}` : ''}`);
       return;
     }
     case 'doctor': {
@@ -416,7 +467,9 @@ async function main() {
       });
       for (const t of report.tasks) console.log(`${t.id.padEnd(4)} ${(t.status ?? '').padEnd(15)} ${t.title ?? ''}`);
       console.log(`branch ${report.branch} · worktree ${report.dir}\nreport: ${file}`);
-      if (report.tasks.some((t) => !['done', 'already-done', 'no-change'].includes(t.status))) process.exitCode = 1;
+      const open = report.tasks.filter((t) => !['done', 'already-done', 'no-change'].includes(t.status));
+      // Waiting on the human is neither success nor failure.
+      if (open.length) process.exitCode = open.every((t) => t.status === 'waiting') ? WAITING : 1;
       return;
     }
     case 'mine': {

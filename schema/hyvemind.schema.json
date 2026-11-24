@@ -478,6 +478,20 @@
     "coolingOffWaived": {
       "type": "string",
       "description": "Written by `pin --allow-fresh`: the one version whose cooling-off period was waived"
+    },
+    "notify": {
+      "type": "object",
+      "description": "How a filed decision (hyvemind ask) reaches the human",
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Shell command run when a decision is filed. It gets HYVEMIND_DECISION_ID, _QUESTION, _REPO, _BLOCKS and _RECOMMEND in its environment. null: a macOS notification. HYVEMIND_NOTIFY overrides it; \"off\" silences it"
+        }
+      }
     }
   }
 }

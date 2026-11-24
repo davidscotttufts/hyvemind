@@ -998,5 +998,55 @@
     "expectOutput": [
       "a test process has no home"
     ]
+  },
+  {
+    "id": "decision-settled-never-changes",
+    "src": "src/decisions.mjs",
+    "old": "if (d.state !== 'pending') throw new Error(`${d.id} is already",
+    "new": "if (false) throw new Error(`${d.id} is already",
+    "test": "test/decisions.test.mjs",
+    "expectOutput": [
+      "a settled decision never changes"
+    ]
+  },
+  {
+    "id": "decision-answer-must-be-an-option",
+    "src": "src/decisions.mjs",
+    "old": "const chosen = d.options.length ? pick(d.options, choice) : String(choice).trim();",
+    "new": "const chosen = String(choice).trim();",
+    "test": "test/decisions.test.mjs",
+    "expectOutput": [
+      "decide takes an option by text or number"
+    ]
+  },
+  {
+    "id": "decision-unreadable-record-is-an-error",
+    "src": "src/decisions.mjs",
+    "old": "if (extra.length) return `unknown key(s): ${extra.join(', ')}`;",
+    "new": "",
+    "test": "test/decisions.test.mjs",
+    "expectOutput": [
+      "a record that cannot be read is an error"
+    ]
+  },
+  {
+    "id": "run-accept-covers-only-the-reviewed-tree",
+    "src": "src/run.mjs",
+    "old": "if (workingTree(dir) === parked.ref.tree) accepted = parked;",
+    "new": "if (true) accepted = parked;",
+    "test": "test/run.test.mjs",
+    "expectOutput": [
+      "an accepted decision covers only the tree the reviewer saw"
+    ]
+  },
+  {
+    "id": "run-pending-decision-waits",
+    "src": "src/run.mjs",
+    "old": "if (parked?.state === 'pending') {",
+    "new": "if (false) {",
+    "test": "test/run.test.mjs",
+    "expectOutput": [
+      "an UNSURE review files a decision"
+    ]
   }
 ]

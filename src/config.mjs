@@ -47,6 +47,9 @@ export const DEFAULTS = {
   evidence: { status: null },
   train: { via: 'hyvemind', message: null },
   // ── end external evidence ──
+  // notify.command: run (in a shell) when a decision is filed, with HYVEMIND_DECISION_ID,
+  // _QUESTION, _REPO, _BLOCKS and _RECOMMEND in its environment. null: a macOS notification.
+  notify: { command: null },
   evals: {
     agent: 'claude',
     agents: {
@@ -131,6 +134,7 @@ export function validate(cfg) {
   need(['hyvemind', 'external'].includes(cfg.train?.via), 'train.via must be "hyvemind" or "external"');
   need(cfg.train?.message === null || typeof cfg.train?.message === 'string', 'train.message must be a string');
   // ── end external evidence ──
+  need(cfg.notify?.command === null || (typeof cfg.notify?.command === 'string' && cfg.notify.command.trim() !== ''), 'notify.command must be null or a shell command');
   for (const [i, g] of (cfg.gates ?? []).entries()) {
     need(typeof g?.name === 'string' && g.name, `gates[${i}].name is required`);
     need(typeof g?.run === 'string' && g.run, `gates[${i}].run is required`);

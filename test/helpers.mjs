@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 // Machine-wide state (the fleet registry, the decision queue) goes to a throwaway home,
 // never the developer's real ~/.hyvemind. Child processes inherit it.
 process.env.HYVEMIND_HOME = mkdtempSync(join(tmpdir(), 'hyve-home-'));
+process.env.HYVEMIND_NOTIFY = 'off';
 
 export function sh(cwd, cmd, args) {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8' });

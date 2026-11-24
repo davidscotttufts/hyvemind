@@ -141,6 +141,7 @@ harder scenarios and to test a second model, not yet a reason to delete them.
 | `live-ai-check` | Run AI features against real models, with keys by name only |
 | `skill-eval` | Measure each skill against the bare model |
 | `mine-skills` | Find the skill chains you repeat by hand |
+| `decisions` | File a question for the human in the decision queue and keep working, instead of stopping on it |
 
 Install all of them, or pick some. A repo that already has its own gate keeps it
 (`externalGate`), and hyvemind doesn't add a second definition of done.

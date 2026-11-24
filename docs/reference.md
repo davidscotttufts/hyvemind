@@ -158,6 +158,36 @@ The registry is `~/.hyvemind/registry.json` (`HYVEMIND_HOME` moves it). `init` a
 `update` add the repo they run in. A repo is listed once, as its main worktree. A
 registry file that can't be read is an error, not an empty list.
 
+### ask, decisions and decide
+
+The decision queue is where an agent puts a question for you, and where you answer it.
+It is one list for the whole machine, in `~/.hyvemind/decisions`, so a question doesn't
+sit unseen inside the session that asked it.
+
+```
+hyvemind ask "Export format for the audit log?" --option CSV --option JSON \
+    --recommend JSON --blocks "T3 (the export endpoint)" --from session-14
+hyvemind decisions                 # everything waiting on you, oldest first
+hyvemind decide d-20261123-4fa1 2 --note "smaller for the mobile client"
+hyvemind decisions --for d-20261123-4fa1    # exit 0 with the answer, 75 while pending
+```
+
+- `ask` files the question and returns at once. `--wait <min>` waits for the answer
+  instead, and exits 75 if none came.
+- With options, the answer must be one of them, by text or number. Add detail with `--note`.
+- A settled decision never changes. A second `decide` is refused: ask a new question.
+- `decisions --here` shows this repository only, `--all` includes settled ones, and
+  `decisions withdraw <id>` is for an asker that no longer needs the answer.
+- Every ask, answer and withdrawal is appended to `~/.hyvemind/decisions.jsonl`.
+
+Filing a decision shows a macOS notification. To send it somewhere else, set
+`notify.command` in `hyvemind.json` (or `HYVEMIND_NOTIFY` in the environment) to a shell
+command. It gets `HYVEMIND_DECISION_ID`, `_QUESTION`, `_REPO`, `_BLOCKS` and `_RECOMMEND`
+in its environment. `HYVEMIND_NOTIFY=off` turns notifications off.
+
+The queue is per machine. Another machine sees it only if `HYVEMIND_HOME` points both at
+shared storage, or `notify.command` relays the question.
+
 ### gate and evidence
 
 `gate` runs your gates and writes `.hyve/evidence/gate-<time>.json`: HEAD, the tree hash
@@ -238,6 +268,14 @@ Podman 6.1.4 (macOS arm64, 2026-10-26): exit codes pass through, checks have no 
 variables outside the allowlist are absent, `~/.ssh`, `~/.codex` and `~/.claude` are
 absent, files written in `/work` belong to you, and `chown` is refused. Repeat it on
 your runtime with `HYVE_SANDBOX_REAL=podman npm test`.
+
+#### A reviewer that isn't sure
+
+The reviewer may answer `VERDICT: UNSURE — <what it would need to decide>`. `run` then
+files a decision (accept or reject), leaves the change uncommitted in the worktree and
+exits 75. After `hyvemind decide <id> accept`, re-running commits that change, provided
+it is still exactly the tree the reviewer saw and the exit check still passes. After
+`reject`, the task is retried from clean with your note as the reason.
 
 ### affected
 
@@ -339,6 +377,7 @@ the change didn't help.
 | `parallel-work` | always | Git hygiene when several agents share one repository. |
 | `skill-eval` | meta | Measures each skill against the bare model. |
 | `mine-skills` | meta | Finds skill chains you repeat by hand. |
+| `decisions` | all | Files a question for the human in the decision queue, keeps working, and treats a pending answer as no answer. |
 | `ai-exchange` | AI review | Grades every place your app talks to an LLM. |
 | `live-ai-check` | AI tests | Runs your app's AI features against real models, with keys by name only. |
 
