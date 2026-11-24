@@ -3,6 +3,10 @@
 ## Unreleased
 
 Added:
+- `run.roles`: a model and an effort level per role (`implementer`, `reviewer`), checked
+  before anything starts. Each run report records them, and the cost, tokens and model of
+  every agent call as the agent reported it. A call with no usage is "not reported", and
+  the total says "at least".
 - **Protected paths** (`protect.paths`): a change to what decides "done" is recorded by
   `gate`, shown by `evidence`, and with `protect.require: "decision"` is not proof until
   the human approves that exact set of changes.

@@ -1148,5 +1148,25 @@
     "expectOutput": [
       "green is not proof until the human approves exactly these changes"
     ]
+  },
+  {
+    "id": "usage-unreported-is-not-zero",
+    "src": "src/usage.mjs",
+    "old": "if (!u) { out.unreported++; continue; }",
+    "new": "if (!u) { continue; }",
+    "test": "test/usage.test.mjs",
+    "expectOutput": [
+      "a call with no usage makes the total a floor"
+    ]
+  },
+  {
+    "id": "role-model-must-be-passable",
+    "src": "src/run.mjs",
+    "old": "if (role[k] && !custom.some((t) => t.includes(`{${k}}`))) throw",
+    "new": "if (false) throw",
+    "test": "test/usage.test.mjs",
+    "expectOutput": [
+      "a custom command must take {model} to be given one"
+    ]
   }
 ]

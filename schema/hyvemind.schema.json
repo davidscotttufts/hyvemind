@@ -366,6 +366,38 @@
               }
             }
           ]
+        },
+        "roles": {
+          "type": "object",
+          "description": "A model and effort per role. The built-in Claude Code roles pass them as --model and --effort; a custom run.agent or run.reviewer must contain {model} or {effort} to receive them",
+          "properties": {
+            "implementer": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string",
+                  "description": "Model for this role"
+                },
+                "effort": {
+                  "type": "string",
+                  "description": "Effort level for this role"
+                }
+              }
+            },
+            "reviewer": {
+              "type": "object",
+              "properties": {
+                "model": {
+                  "type": "string",
+                  "description": "Model for this role"
+                },
+                "effort": {
+                  "type": "string",
+                  "description": "Effort level for this role"
+                }
+              }
+            }
+          }
         }
       }
     },
