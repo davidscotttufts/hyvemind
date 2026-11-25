@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-24)
 
 Added:
 - **Skill sources** (`skills.sources`): install skills from another repository at a pinned
